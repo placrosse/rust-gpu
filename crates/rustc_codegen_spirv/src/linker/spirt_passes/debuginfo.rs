@@ -81,6 +81,7 @@ impl Transformer for CustomDebuginfoToSpv<'_> {
                 if let DataInstKind::SpvExtInst {
                     ext_set,
                     inst: ext_inst,
+                    lowering: _,
                 } = self.cx[data_inst_def.form].kind
                 {
                     if ext_set == self.custom_ext_inst_set {

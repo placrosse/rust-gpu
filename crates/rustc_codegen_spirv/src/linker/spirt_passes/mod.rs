@@ -340,7 +340,10 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
                             self.mark_used(func.at(case).def().outputs[output_idx as usize]);
                         }
                     }
-                    Value::DataInstOutput(inst) => {
+                    Value::DataInstOutput {
+                        inst,
+                        output_idx: _,
+                    } => {
                         for &input in &func.at(inst).def().inputs {
                             self.mark_used(input);
                         }
@@ -392,6 +395,7 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
                     match func_at_control_node.def().kind {
                         ControlNodeKind::Block { insts } => {
                             for func_at_inst in func_at_control_node.at(insts) {
+                                let inst_form_def = &cx[func_at_inst.def().form];
                                 // Ignore pure instructions (i.e. they're only used
                                 // if their output value is used, from somewhere else).
                                 let is_pure = match &cx[func_at_inst.def().form].kind {
@@ -411,18 +415,34 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
 
                                     // HACK(eddyb) small selection relevant for now,
                                     // but should be extended using e.g. a bitset.
-                                    DataInstKind::SpvInst(spv_inst) => {
+                                    DataInstKind::SpvInst(spv_inst, _) => {
                                         [wk.OpNop, wk.OpCompositeInsert].contains(&spv_inst.opcode)
                                     }
 
-                                    DataInstKind::QPtr(QPtrOp::Load | QPtrOp::Store)
+                                    DataInstKind::QPtr(
+                                        QPtrOp::Load { .. } | QPtrOp::Store { .. },
+                                    )
                                     | DataInstKind::FuncCall(_)
                                     | DataInstKind::SpvExtInst { .. } => false,
                                 };
-                                if !is_pure {
-                                    mark_used_and_propagate(Value::DataInstOutput(
-                                        func_at_inst.position,
-                                    ));
+                                if is_pure {
+                                    continue;
+                                }
+                                let output_count = inst_form_def.output_types.len() as u32;
+                                // FIXME(eddyb) this is less efficient than tracking `DataInst`s.
+                                if output_count == 0 {
+                                    // HACK(eddyb) still need to mark the instruction's
+                                    // inputs as used, while it has no output `Value`.
+                                    for &input in &func_at_inst.def().inputs {
+                                        mark_used_and_propagate(input);
+                                    }
+                                } else {
+                                    for output_idx in 0..output_count {
+                                        mark_used_and_propagate(Value::DataInstOutput {
+                                            inst: func_at_inst.position,
+                                            output_idx,
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -459,14 +479,17 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
                 let mut all_nops = true;
                 let mut func_at_inst_iter = func_def_body.at_mut(insts).into_iter();
                 while let Some(mut func_at_inst) = func_at_inst_iter.next() {
-                    if let DataInstKind::SpvInst(spv_inst) =
-                        &cx[func_at_inst.reborrow().def().form].kind
-                    {
-                        if spv_inst.opcode == wk.OpNop {
-                            continue;
-                        }
-                    }
-                    if !used_values.contains(&Value::DataInstOutput(func_at_inst.position)) {
+                    let output_count =
+                        cx[func_at_inst.reborrow().def().form].output_types.len() as u32;
+                    // FIXME(eddyb) this is less efficient than tracking `DataInst`s.
+                    let used = output_count == 0
+                        || (0..output_count).any(|output_idx| {
+                            used_values.contains(&Value::DataInstOutput {
+                                inst: func_at_inst.position,
+                                output_idx,
+                            })
+                        });
+                    if !used {
                         // Replace the removed `DataInstDef` itself with `OpNop`,
                         // removing the ability to use its "name" as a value.
                         //
@@ -474,8 +497,11 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
                         *func_at_inst.def() = DataInstDef {
                             attrs: Default::default(),
                             form: cx.intern(DataInstFormDef {
-                                kind: DataInstKind::SpvInst(wk.OpNop.into()),
-                                output_type: None,
+                                kind: DataInstKind::SpvInst(
+                                    wk.OpNop.into(),
+                                    spv::InstLowering::default(),
+                                ),
+                                output_types: [].into_iter().collect(),
                             }),
                             inputs: iter::empty().collect(),
                         };

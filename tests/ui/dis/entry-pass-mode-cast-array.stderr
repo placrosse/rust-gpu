@@ -2,22 +2,23 @@
 %4 = OpLabel
 OpLine %5 13 12
 %6 = OpLoad  %7  %8
+%9 = OpCompositeExtract  %10  %6 0
+%11 = OpCompositeExtract  %10  %6 1
 OpLine %5 14 4
-%9 = OpULessThan  %10  %11 %12
+%12 = OpULessThan  %13  %14 %15
 OpNoLine
-OpSelectionMerge %13 None
-OpBranchConditional %9 %14 %15
-%14 = OpLabel
+OpSelectionMerge %16 None
+OpBranchConditional %12 %17 %18
+%17 = OpLabel
 OpLine %5 14 4
-%16 = OpCompositeExtract  %17  %6 0
-%18 = OpFAdd  %17  %16 %19
-%20 = OpCompositeInsert  %7  %18 %6 0
+%19 = OpFAdd  %10  %9 %20
 OpLine %5 15 4
-OpStore %21 %20
+%21 = OpCompositeConstruct  %7  %19 %11
+OpStore %22 %21
 OpNoLine
-OpBranch %13
-%15 = OpLabel
-OpBranch %13
-%13 = OpLabel
+OpBranch %16
+%18 = OpLabel
+OpBranch %16
+%16 = OpLabel
 OpReturn
 OpFunctionEnd
