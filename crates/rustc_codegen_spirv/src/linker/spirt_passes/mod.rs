@@ -146,6 +146,26 @@ pub(super) fn run_func_passes<P>(
             spirt::passes::qptr::lower_from_spv_ptrs(module, layout_config);
             after_pass("qptr::lower_from_spv_ptrs", module, profiler);
 
+            let profiler = before_pass("qptr::partition_and_propagate", module);
+            loop {
+                spirt::passes::qptr::partition_and_propagate(module, layout_config);
+                // HACK(eddyb) `partition_and_propagate` can create inputs/outputs
+                // into/from control regions/nodes, that aren't actually needed,
+                // so this is a stop-gap solution to prevent many spurious phis, but
+                // more importantly, to prevent control-flow propagation of `qptr`s.
+                let mut any_changes = false;
+                for &func in &all_funcs {
+                    if let DeclDef::Present(func_def_body) = &mut module.funcs[func].def {
+                        // FIXME(eddyb) avoid doing this except where changes occurred.
+                        any_changes |= remove_unused_values_in_func(cx, func_def_body);
+                    }
+                }
+                if !any_changes {
+                    break;
+                }
+            }
+            after_pass("qptr::partition_and_propagate", module, profiler);
+
             let profiler = before_pass("qptr::analyze_uses", module);
             spirt::passes::qptr::analyze_uses(module, layout_config);
             after_pass("qptr::analyze_uses", module, profiler);
@@ -275,10 +295,11 @@ const _: () = {
 /// a function body (both `DataInst`s and `ControlRegion` inputs/outputs).
 //
 // FIXME(eddyb) should this be a dedicated pass?
-fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
+// HACK(eddyb) returns `true` if any changes were made
+fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) -> bool {
     // Avoid having to support unstructured control-flow.
     if func_def_body.unstructured_cfg.is_some() {
-        return;
+        return false;
     }
 
     let wk = &SpvSpecWithExtras::get().well_known;
@@ -467,6 +488,8 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
         propagator.used
     };
 
+    let mut any_changes = false;
+
     // FIXME(eddyb) entity-keyed dense maps might be better for performance,
     // but would require separate maps for separate `Value` cases.
     let mut value_replacements = FxHashMap::default();
@@ -490,6 +513,8 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
                             })
                         });
                     if !used {
+                        any_changes = true;
+
                         // Replace the removed `DataInstDef` itself with `OpNop`,
                         // removing the ability to use its "name" as a value.
                         //
@@ -530,6 +555,8 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
                     };
 
                     if !used_values.contains(&original_output) {
+                        any_changes = true;
+
                         // Remove the output definition and corresponding value from all cases.
                         func_def_body
                             .at_mut(control_node)
@@ -568,6 +595,8 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
                     };
 
                     if !used_values.contains(&original_input) {
+                        any_changes = true;
+
                         // Remove the input definition and corresponding values.
                         match &mut func_def_body.at_mut(control_node).def().kind {
                             ControlNodeKind::Loop { initial_inputs, .. } => {
@@ -598,7 +627,12 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
     if !value_replacements.is_empty() {
         func_def_body.inner_in_place_transform_with(&mut ReplaceValueWith(|v| match v {
             Value::Const(_) => None,
-            _ => value_replacements.get(&v).copied(),
+            _ => value_replacements.get(&v).map(|&new_v| {
+                any_changes = true;
+                new_v
+            }),
         }));
     }
+
+    any_changes
 }
