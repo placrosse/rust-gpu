@@ -9,6 +9,7 @@ mod reduce;
 use lazy_static::lazy_static;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet, FxIndexSet};
 use spirt::func_at::FuncAt;
+use spirt::qptr::QPtrOp;
 use spirt::transform::InnerInPlaceTransform;
 use spirt::visit::{InnerVisit, Visitor};
 use spirt::{
@@ -69,7 +70,6 @@ macro_rules! def_spv_spec_with_extra_well_known {
                         };
 
                         let lookup_fns = PerWellKnownGroup {
-                            opcode: |name| spv_spec.instructions.lookup(name).unwrap(),
                             operand_kind: |name| spv_spec.operand_kinds.lookup(name).unwrap(),
                             decoration: |name| decorations.lookup(name).unwrap().into(),
                         };
@@ -91,15 +91,6 @@ macro_rules! def_spv_spec_with_extra_well_known {
     };
 }
 def_spv_spec_with_extra_well_known! {
-    opcode: spv::spec::Opcode = [
-        OpTypeVoid,
-
-        OpConstantComposite,
-
-        OpBitcast,
-        OpCompositeInsert,
-        OpCompositeExtract,
-    ],
     operand_kind: spv::spec::OperandKind = [
         ExecutionModel,
     ],
@@ -403,18 +394,36 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
                             for func_at_inst in func_at_control_node.at(insts) {
                                 // Ignore pure instructions (i.e. they're only used
                                 // if their output value is used, from somewhere else).
-                                if let DataInstKind::SpvInst(spv_inst) =
-                                    &cx[func_at_inst.def().form].kind
-                                {
+                                let is_pure = match &cx[func_at_inst.def().form].kind {
+                                    DataInstKind::Scalar(_)
+                                    | DataInstKind::Vector(_)
+                                    | DataInstKind::QPtr(
+                                        // FIXME(eddyb) this is literally all of them, other than
+                                        // `Load`/`Store`, almost as if there's a split between
+                                        // "pointer computation" and "memory access".
+                                        QPtrOp::FuncLocalVar(_)
+                                        | QPtrOp::HandleArrayIndex
+                                        | QPtrOp::BufferData
+                                        | QPtrOp::BufferDynLen { .. }
+                                        | QPtrOp::Offset(_)
+                                        | QPtrOp::DynOffset { .. },
+                                    ) => true,
+
                                     // HACK(eddyb) small selection relevant for now,
                                     // but should be extended using e.g. a bitset.
-                                    if [wk.OpNop, wk.OpCompositeInsert].contains(&spv_inst.opcode) {
-                                        continue;
+                                    DataInstKind::SpvInst(spv_inst) => {
+                                        [wk.OpNop, wk.OpCompositeInsert].contains(&spv_inst.opcode)
                                     }
+
+                                    DataInstKind::QPtr(QPtrOp::Load | QPtrOp::Store)
+                                    | DataInstKind::FuncCall(_)
+                                    | DataInstKind::SpvExtInst { .. } => false,
+                                };
+                                if !is_pure {
+                                    mark_used_and_propagate(Value::DataInstOutput(
+                                        func_at_inst.position,
+                                    ));
                                 }
-                                mark_used_and_propagate(Value::DataInstOutput(
-                                    func_at_inst.position,
-                                ));
                             }
                         }
 

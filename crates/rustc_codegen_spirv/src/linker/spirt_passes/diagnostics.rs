@@ -248,8 +248,6 @@ impl UseOrigin<'_> {
                 .or_else(|| {
                     let debug_inst_def = last_debug_src_loc_inst?;
 
-                    let wk = &super::SpvSpecWithExtras::get().well_known;
-
                     // FIXME(eddyb) deduplicate with `spirt_passes::diagnostics`.
                     let custom_op = match cx[debug_inst_def.form].kind {
                         DataInstKind::SpvExtInst {
@@ -275,27 +273,16 @@ impl UseOrigin<'_> {
                             } => (file, line_start, line_end, col_start, col_end),
                             _ => unreachable!(),
                         };
-                    let const_kind = |v: Value| match v {
-                        Value::Const(ct) => &cx[ct].kind,
+                    let expect_const = |v| match v {
+                        Value::Const(ct) => ct,
                         _ => unreachable!(),
                     };
-                    let const_str = |v: Value| match const_kind(v) {
-                        &ConstKind::SpvStringLiteralForExtInst(s) => s,
+                    let const_str = |v| match cx[expect_const(v)].kind {
+                        ConstKind::SpvStringLiteralForExtInst(s) => s,
                         _ => unreachable!(),
                     };
-                    let const_u32 = |v: Value| match const_kind(v) {
-                        ConstKind::SpvInst {
-                            spv_inst_and_const_inputs,
-                        } => {
-                            let (spv_inst, _const_inputs) = &**spv_inst_and_const_inputs;
-                            assert!(spv_inst.opcode == wk.OpConstant);
-                            match spv_inst.imms[..] {
-                                [spv::Imm::Short(_, x)] => x,
-                                _ => unreachable!(),
-                            }
-                        }
-                        _ => unreachable!(),
-                    };
+                    let const_u32 =
+                        |v| expect_const(v).as_scalar(cx).unwrap().int_as_u32().unwrap();
 
                     span_regen.src_loc_to_rustc(SrcLocDecoration {
                         file_name: &cx[const_str(file)],
@@ -642,12 +629,12 @@ impl<'a> Visitor<'a> for DiagnosticReporter<'a> {
                                     // Treat this like a call, in the caller.
                                     replace_origin(self, IntraFuncUseOrigin::CallCallee);
 
-                                    let const_kind = |v: Value| match v {
-                                        Value::Const(ct) => &self.cx[ct].kind,
+                                    let expect_const = |v| match v {
+                                        Value::Const(ct) => ct,
                                         _ => unreachable!(),
                                     };
-                                    let const_str = |v: Value| match const_kind(v) {
-                                        &ConstKind::SpvStringLiteralForExtInst(s) => s,
+                                    let const_str = |v| match self.cx[expect_const(v)].kind {
+                                        ConstKind::SpvStringLiteralForExtInst(s) => s,
                                         _ => unreachable!(),
                                     };
                                     self.use_stack.push(UseOrigin::IntraFunc {
