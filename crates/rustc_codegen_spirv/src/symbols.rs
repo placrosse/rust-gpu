@@ -374,6 +374,10 @@ impl Symbols {
                 "buffer_store_intrinsic",
                 SpirvAttribute::BufferStoreIntrinsic,
             ),
+            (
+                "runtime_array_index_intrinsic",
+                SpirvAttribute::RuntimeArrayIndexIntrinsic,
+            ),
         ]
         .iter()
         .cloned();
