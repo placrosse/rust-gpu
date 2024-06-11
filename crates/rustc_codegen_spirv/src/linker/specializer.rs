@@ -2004,7 +2004,7 @@ impl<'a, S: Specialization> InferCx<'a, S> {
                 eprintln!("    found {:?}", m.debug_with_infer_cx(self));
             }
 
-            if let Err(e) = self.equate_match_findings(m) {
+            if let Err(_e) = self.equate_match_findings(m) {
                 // temporarily disabled, arrays of buffer descriptors cause errors here
                 // e.report(inst);
             }
