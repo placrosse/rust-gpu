@@ -57,7 +57,7 @@ sanitize-filename = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 smallvec = { version = "1.6.1", features = ["union"] }
-spirt = "0.3.0"
+spirt = { git = "https://github.com/Firestar99/spirt", rev = "671c030b1b5174f4cb1c5f95b21516abbec77833" }
 spirv-tools.workspace = true
 lazy_static = "1.4.0"
 itertools = "0.10.5"
