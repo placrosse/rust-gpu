@@ -59,7 +59,7 @@ serde_json = "1.0"
 smallvec = { version = "1.6.1", features = ["union"] }
 # FIXME(eddyb) release 0.4.0
 # spirt = "0.4.0"
-spirt = { version = "0.4.0", git = "https://github.com/LykenSol/spirt", branch = "qptr-mem-pnp" }
+spirt = { version = "0.4.0", git = "https://github.com/LykenSol/spirt", branch = "ephemera/polaris" }
 spirv-tools.workspace = true
 lazy_static = "1.4.0"
 itertools = "0.10.5"
