@@ -208,10 +208,12 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             }
             .unwrap()
             .with_type(result_type);
-            self.zombie(
-                result.def(self),
-                "cannot offset a pointer to an arbitrary element",
-            );
+            if false {
+                self.zombie(
+                    result.def(self),
+                    "cannot offset a pointer to an arbitrary element",
+                );
+            }
             result
         }
     }

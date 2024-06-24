@@ -4,8 +4,8 @@ use crate::custom_insts::{self, CustomInst, CustomOp};
 use smallvec::SmallVec;
 use spirt::func_at::FuncAt;
 use spirt::{
-    cfg, spv, Attr, AttrSet, ConstCtor, ConstDef, ControlNodeKind, DataInstFormDef, DataInstKind,
-    DeclDef, EntityDefs, ExportKey, Exportee, Module, Type, TypeCtor, TypeCtorArg, TypeDef, Value,
+    cfg, scalar, spv, Attr, AttrSet, ConstDef, ConstKind, ControlNodeKind, DataInstFormDef,
+    DataInstKind, DeclDef, EntityDefs, ExportKey, Exportee, Module, Type, TypeKind, Value,
 };
 use std::fmt::Write as _;
 
@@ -66,10 +66,7 @@ pub fn convert_custom_aborts_to_unstructured_returns_in_entry_points(
         };
 
         let func_decl = &mut module.funcs[func];
-        assert!(match &cx[func_decl.ret_type].ctor {
-            TypeCtor::SpvInst(spv_inst) => spv_inst.opcode == wk.OpTypeVoid,
-            _ => false,
-        });
+        assert!(func_decl.ret_types.is_empty());
 
         let func_def_body = match &mut func_decl.def {
             DeclDef::Present(def) => def,
@@ -109,15 +106,18 @@ pub fn convert_custom_aborts_to_unstructured_returns_in_entry_points(
                 .filter_map(|func_at_inst| {
                     let data_inst_def = func_at_inst.def();
                     let data_inst_form_def = &cx[data_inst_def.form];
-                    if let DataInstKind::SpvInst(spv_inst) = &data_inst_form_def.kind {
-                        if spv_inst.opcode == wk.OpLoad {
+                    if let DataInstKind::SpvInst(spv_inst, lowering) = &data_inst_form_def.kind {
+                        if spv_inst.opcode == wk.OpLoad && lowering.disaggregated_output.is_none() {
                             if let Value::Const(ct) = data_inst_def.inputs[0] {
-                                if let ConstCtor::PtrToGlobalVar(gv) = cx[ct].ctor {
+                                if let ConstKind::PtrToGlobalVar(gv) = cx[ct].kind {
                                     if interface_global_vars.contains(&gv) {
                                         return Some((
                                             gv,
-                                            data_inst_form_def.output_type.unwrap(),
-                                            Value::DataInstOutput(func_at_inst.position),
+                                            data_inst_form_def.output_types[0],
+                                            Value::DataInstOutput {
+                                                inst: func_at_inst.position,
+                                                output_idx: 0,
+                                            },
                                         ));
                                     }
                                 }
@@ -129,37 +129,23 @@ pub fn convert_custom_aborts_to_unstructured_returns_in_entry_points(
             if inputs {
                 let mut first_input = true;
                 for (gv, ty, value) in loaded_inputs {
-                    let scalar_type = |ty: Type| match &cx[ty].ctor {
-                        TypeCtor::SpvInst(spv_inst) => match spv_inst.imms[..] {
-                            [spv::Imm::Short(_, 32), spv::Imm::Short(_, signedness)]
-                                if spv_inst.opcode == wk.OpTypeInt =>
-                            {
-                                Some(if signedness != 0 { "i" } else { "u" })
+                    let vector_or_scalar_fmt = |ty: Type| {
+                        let (scalar_type, vlen) = match cx[ty].kind {
+                            TypeKind::Scalar(ty) => (ty, None),
+                            TypeKind::Vector(ty) if (2..=4).contains(&ty.elem_count.get()) => {
+                                (ty.elem, Some(ty.elem_count))
                             }
-                            [spv::Imm::Short(_, 32)] if spv_inst.opcode == wk.OpTypeFloat => {
-                                Some("f")
-                            }
-                            _ => None,
-                        },
-                        _ => None,
+                            _ => return None,
+                        };
+                        let scalar_fmt = match scalar_type {
+                            scalar::Type::S32 => "i",
+                            scalar::Type::U32 => "u",
+                            scalar::Type::F32 => "f",
+                            _ => return None,
+                        };
+                        Some((scalar_fmt, vlen))
                     };
-                    let vector_or_scalar_type = |ty: Type| {
-                        let ty_def = &cx[ty];
-                        match (&ty_def.ctor, &ty_def.ctor_args[..]) {
-                            (TypeCtor::SpvInst(spv_inst), &[TypeCtorArg::Type(elem)])
-                                if spv_inst.opcode == wk.OpTypeVector =>
-                            {
-                                match spv_inst.imms[..] {
-                                    [spv::Imm::Short(_, vlen @ 2..=4)] => {
-                                        Some((scalar_type(elem)?, Some(vlen)))
-                                    }
-                                    _ => None,
-                                }
-                            }
-                            _ => Some((scalar_type(ty)?, None)),
-                        }
-                    };
-                    if let Some((scalar_fmt, vlen)) = vector_or_scalar_type(ty) {
+                    if let Some((scalar_fmt, vlen)) = vector_or_scalar_fmt(ty) {
                         if !first_input {
                             fmt += ", ";
                         }
@@ -225,9 +211,11 @@ pub fn convert_custom_aborts_to_unstructured_returns_in_entry_points(
                 (
                     func_at_inst,
                     match cx[data_inst_def.form].kind {
-                        DataInstKind::SpvExtInst { ext_set, inst }
-                            if ext_set == custom_ext_inst_set =>
-                        {
+                        DataInstKind::SpvExtInst {
+                            ext_set,
+                            inst,
+                            lowering: _,
+                        } if ext_set == custom_ext_inst_set => {
                             Some(CustomOp::decode(inst).with_operands(&data_inst_def.inputs))
                         }
                         _ => None,
@@ -260,34 +248,21 @@ pub fn convert_custom_aborts_to_unstructured_returns_in_entry_points(
                         inputs: _,
                         backtrace,
                     }) => {
-                        let const_ctor = |v: Value| match v {
-                            Value::Const(ct) => &cx[ct].ctor,
+                        let expect_const = |v| match v {
+                            Value::Const(ct) => ct,
                             _ => unreachable!(),
                         };
-                        let const_str = |v: Value| match const_ctor(v) {
-                            &ConstCtor::SpvStringLiteralForExtInst(s) => s,
+                        let const_str = |v| match cx[expect_const(v)].kind {
+                            ConstKind::SpvStringLiteralForExtInst(s) => s,
                             _ => unreachable!(),
                         };
-                        let const_u32 = |v: Value| match const_ctor(v) {
-                            ConstCtor::SpvInst(spv_inst) => {
-                                assert!(spv_inst.opcode == wk.OpConstant);
-                                match spv_inst.imms[..] {
-                                    [spv::Imm::Short(_, x)] => x,
-                                    _ => unreachable!(),
-                                }
-                            }
-                            _ => unreachable!(),
-                        };
+                        let const_u32 =
+                            |v| expect_const(v).as_scalar(cx).unwrap().int_as_u32().unwrap();
                         let mk_const_str = |s| {
                             cx.intern(ConstDef {
                                 attrs: Default::default(),
-                                ty: cx.intern(TypeDef {
-                                    attrs: Default::default(),
-                                    ctor: TypeCtor::SpvStringLiteralForExtInst,
-                                    ctor_args: Default::default(),
-                                }),
-                                ctor: ConstCtor::SpvStringLiteralForExtInst(s),
-                                ctor_args: Default::default(),
+                                ty: cx.intern(TypeKind::SpvStringLiteralForExtInst),
+                                kind: ConstKind::SpvStringLiteralForExtInst(s),
                             })
                         };
 
@@ -407,8 +382,9 @@ pub fn convert_custom_aborts_to_unstructured_returns_in_entry_points(
                             kind: DataInstKind::SpvExtInst {
                                 ext_set: cx.intern("NonSemantic.DebugPrintf"),
                                 inst: 1,
+                                lowering: Default::default(),
                             },
-                            output_type: cx[abort_inst_def.form].output_type,
+                            output_types: cx[abort_inst_def.form].output_types.clone(),
                         });
                         abort_inst_def.inputs = [Value::Const(mk_const_str(cx.intern(fmt)))]
                             .into_iter()

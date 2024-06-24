@@ -2,7 +2,6 @@
 mod test;
 
 mod dce;
-mod destructure_composites;
 mod duplicates;
 mod entry_interface;
 mod import_export_link;
@@ -32,6 +31,7 @@ use rustc_session::Session;
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
+use std::time::Instant;
 
 pub type Result<T> = std::result::Result<T, ErrorGuaranteed>;
 
@@ -41,6 +41,7 @@ pub struct Options {
     pub dce: bool,
     pub early_report_zombies: bool,
     pub infer_storage_classes: bool,
+    pub legacy_mem2reg: bool,
     pub structurize: bool,
     pub spirt_passes: Vec<String>,
 
@@ -221,15 +222,15 @@ pub fn link(
         simple_passes::check_fragment_insts(sess, &output)?;
     }
 
-    // HACK(eddyb) this has to run before the `report_and_remove_zombies` pass,
-    // so that any zombies that are passed as call arguments, but eventually unused,
-    // won't be (incorrectly) considered used.
-    {
-        let _timer = sess.timer("link_remove_unused_params");
-        output = param_weakening::remove_unused_params(output);
-    }
-
     if opts.early_report_zombies {
+        // HACK(eddyb) this has to run before the `report_and_remove_zombies` pass,
+        // so that any zombies that are passed as call arguments, but eventually unused,
+        // won't be (incorrectly) considered used.
+        {
+            let _timer = sess.timer("link_remove_unused_params");
+            output = param_weakening::remove_unused_params(output);
+        }
+
         // HACK(eddyb) `report_and_remove_zombies` is bad at determining whether
         // some things are dead (such as whole blocks), and there's no reason to
         // *not* run DCE, given SPIR-T exists and makes DCE mandatory, but we're
@@ -317,14 +318,15 @@ pub fn link(
         for func in &mut output.functions {
             simple_passes::block_ordering_pass(func);
             // Note: mem2reg requires functions to be in RPO order (i.e. block_ordering_pass)
-            mem2reg::mem2reg(
-                output.header.as_mut().unwrap(),
-                &mut output.types_global_values,
-                &pointer_to_pointee,
-                &constants,
-                func,
-            );
-            destructure_composites::destructure_composites(func);
+            if opts.legacy_mem2reg {
+                mem2reg::mem2reg(
+                    output.header.as_mut().unwrap(),
+                    &mut output.types_global_values,
+                    &pointer_to_pointee,
+                    &constants,
+                    func,
+                );
+            }
         }
     }
 
@@ -373,14 +375,15 @@ pub fn link(
         for func in &mut output.functions {
             simple_passes::block_ordering_pass(func);
             // Note: mem2reg requires functions to be in RPO order (i.e. block_ordering_pass)
-            mem2reg::mem2reg(
-                output.header.as_mut().unwrap(),
-                &mut output.types_global_values,
-                &pointer_to_pointee,
-                &constants,
-                func,
-            );
-            destructure_composites::destructure_composites(func);
+            if opts.legacy_mem2reg {
+                mem2reg::mem2reg(
+                    output.header.as_mut().unwrap(),
+                    &mut output.types_global_values,
+                    &pointer_to_pointee,
+                    &constants,
+                    func,
+                );
+            }
         }
     }
 
@@ -394,7 +397,7 @@ pub fn link(
     // NOTE(eddyb) SPIR-T pipeline is entirely limited to this block.
     {
         let mut per_pass_module_for_dumping = vec![];
-        let mut after_pass = |pass, module: &spirt::Module| {
+        let mut after_pass = |pass: Cow<'static, str>, module: &spirt::Module| {
             if opts.dump_spirt_passes.is_some() {
                 per_pass_module_for_dumping.push((pass, module.clone()));
             }
@@ -433,7 +436,7 @@ pub fn link(
                 }
             }
         };
-        after_pass("lower_from_spv", &module);
+        after_pass("lower_from_spv".into(), &module);
 
         // NOTE(eddyb) this *must* run on unstructured CFGs, to do its job.
         {
@@ -446,7 +449,7 @@ pub fn link(
                 let _timer = sess.timer("spirt::legalize::structurize_func_cfgs");
                 spirt::passes::legalize::structurize_func_cfgs(&mut module);
             }
-            after_pass("structurize_func_cfgs", &module);
+            after_pass("structurize_func_cfgs".into(), &module);
         }
 
         if !opts.spirt_passes.is_empty() {
@@ -454,10 +457,19 @@ pub fn link(
             spirt_passes::run_func_passes(
                 &mut module,
                 &opts.spirt_passes,
-                |name, _module| sess.timer(name),
-                |name, module, timer| {
+                |name, _module| (sess.timer(name), Instant::now()),
+                |name, module, (timer, start_time)| {
+                    let elapsed = start_time.elapsed();
                     drop(timer);
-                    after_pass(name, module);
+                    let elapsed_secs = elapsed.as_secs_f64();
+                    after_pass(
+                        if elapsed_secs >= 1.0 {
+                            format!("{name} ({:.3}s)", elapsed.as_secs_f64()).into()
+                        } else {
+                            format!("{name} ({:.1}ms)", elapsed.as_secs_f64() * 1000.0).into()
+                        },
+                        module,
+                    );
                 },
             );
         }
@@ -482,7 +494,7 @@ pub fn link(
         // a loop so that we redo everything but keeping `Module` clones?).
         if any_spirt_bugs && dump_spirt_file_path.is_none() {
             if per_pass_module_for_dumping.is_empty() {
-                per_pass_module_for_dumping.push(("", module.clone()));
+                per_pass_module_for_dumping.push(("".into(), module.clone()));
             }
             dump_spirt_file_path = Some(outputs.temp_path_ext("spirt", None));
         }

@@ -10,7 +10,7 @@ use smallvec::SmallVec;
 use spirt::func_at::FuncAt;
 use spirt::visit::{InnerVisit, Visitor};
 use spirt::{
-    spv, Attr, AttrSet, AttrSetDef, Const, ConstCtor, Context, ControlNode, ControlNodeKind,
+    spv, Attr, AttrSet, AttrSetDef, Const, ConstKind, Context, ControlNode, ControlNodeKind,
     DataInstDef, DataInstForm, DataInstKind, Diag, DiagLevel, ExportKey, Exportee, Func, FuncDecl,
     GlobalVar, InternedStr, Module, Type, Value,
 };
@@ -248,13 +248,12 @@ impl UseOrigin<'_> {
                 .or_else(|| {
                     let debug_inst_def = last_debug_src_loc_inst?;
 
-                    let wk = &super::SpvSpecWithExtras::get().well_known;
-
                     // FIXME(eddyb) deduplicate with `spirt_passes::diagnostics`.
                     let custom_op = match cx[debug_inst_def.form].kind {
                         DataInstKind::SpvExtInst {
                             ext_set,
                             inst: ext_inst,
+                            lowering: _,
                         } => {
                             // FIXME(eddyb) inefficient (ideally the `InternedStr`
                             // shoudl be available), but this is the error case.
@@ -275,24 +274,16 @@ impl UseOrigin<'_> {
                             } => (file, line_start, line_end, col_start, col_end),
                             _ => unreachable!(),
                         };
-                    let const_ctor = |v: Value| match v {
-                        Value::Const(ct) => &cx[ct].ctor,
+                    let expect_const = |v| match v {
+                        Value::Const(ct) => ct,
                         _ => unreachable!(),
                     };
-                    let const_str = |v: Value| match const_ctor(v) {
-                        &ConstCtor::SpvStringLiteralForExtInst(s) => s,
+                    let const_str = |v| match cx[expect_const(v)].kind {
+                        ConstKind::SpvStringLiteralForExtInst(s) => s,
                         _ => unreachable!(),
                     };
-                    let const_u32 = |v: Value| match const_ctor(v) {
-                        ConstCtor::SpvInst(spv_inst) => {
-                            assert!(spv_inst.opcode == wk.OpConstant);
-                            match spv_inst.imms[..] {
-                                [spv::Imm::Short(_, x)] => x,
-                                _ => unreachable!(),
-                            }
-                        }
-                        _ => unreachable!(),
-                    };
+                    let const_u32 =
+                        |v| expect_const(v).as_scalar(cx).unwrap().int_as_u32().unwrap();
 
                     span_regen.src_loc_to_rustc(SrcLocDecoration {
                         file_name: &cx[const_str(file)],
@@ -502,9 +493,9 @@ impl<'a> Visitor<'a> for DiagnosticReporter<'a> {
     fn visit_const_use(&mut self, ct: Const) {
         if self.seen_consts.insert(ct) {
             let ct_def = &self.cx[ct];
-            match ct_def.ctor {
+            match ct_def.kind {
                 // HACK(eddyb) don't push an `UseOrigin` for `GlobalVar` pointers.
-                ConstCtor::PtrToGlobalVar(_) if ct_def.attrs == AttrSet::default() => {
+                ConstKind::PtrToGlobalVar(_) if ct_def.attrs == AttrSet::default() => {
                     self.visit_const_def(ct_def);
                 }
                 _ => {
@@ -622,6 +613,7 @@ impl<'a> Visitor<'a> for DiagnosticReporter<'a> {
                 if let DataInstKind::SpvExtInst {
                     ext_set,
                     inst: ext_inst,
+                    lowering: _,
                 } = self.cx[data_inst_def.form].kind
                 {
                     if ext_set == self.custom_ext_inst_set {
@@ -639,12 +631,12 @@ impl<'a> Visitor<'a> for DiagnosticReporter<'a> {
                                     // Treat this like a call, in the caller.
                                     replace_origin(self, IntraFuncUseOrigin::CallCallee);
 
-                                    let const_ctor = |v: Value| match v {
-                                        Value::Const(ct) => &self.cx[ct].ctor,
+                                    let expect_const = |v| match v {
+                                        Value::Const(ct) => ct,
                                         _ => unreachable!(),
                                     };
-                                    let const_str = |v: Value| match const_ctor(v) {
-                                        &ConstCtor::SpvStringLiteralForExtInst(s) => s,
+                                    let const_str = |v| match self.cx[expect_const(v)].kind {
+                                        ConstKind::SpvStringLiteralForExtInst(s) => s,
                                         _ => unreachable!(),
                                     };
                                     self.use_stack.push(UseOrigin::IntraFunc {

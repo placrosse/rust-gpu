@@ -6,7 +6,9 @@ use crate::rustc_codegen_ssa::traits::BaseTypeMethods;
 use crate::spirv_type::SpirvType;
 use itertools::Itertools;
 use rspirv::dr::{InsertPoint, Instruction, Operand};
-use rspirv::spirv::{Capability, MemoryModel, MemorySemantics, Op, Scope, StorageClass, Word};
+use rspirv::spirv::{
+    Capability, MemoryAccess, MemoryModel, MemorySemantics, Op, Scope, StorageClass, Word,
+};
 use rustc_apfloat::{ieee, Float, Round, Status};
 use rustc_codegen_ssa::common::{
     AtomicOrdering, AtomicRmwBinOp, IntPredicate, RealPredicate, SynchronizationScope, TypeKind,
@@ -1201,10 +1203,19 @@ impl<'a, 'tcx> BuilderMethods<'a, 'tcx> for Builder<'a, 'tcx> {
     }
 
     fn volatile_load(&mut self, ty: Self::Type, ptr: Self::Value) -> Self::Value {
-        // TODO: Implement this
-        let result = self.load(ty, ptr, Align::from_bytes(0).unwrap());
-        self.zombie(result.def(self), "volatile load is not supported yet");
-        result
+        let (ptr, access_ty) = self.adjust_pointer_for_typed_access(ptr, ty);
+        let loaded_val = self
+            .emit()
+            .load(
+                access_ty,
+                None,
+                ptr.def(self),
+                Some(MemoryAccess::VOLATILE),
+                empty(),
+            )
+            .unwrap()
+            .with_type(access_ty);
+        self.bitcast(loaded_val, ty)
     }
 
     fn atomic_load(
@@ -2051,7 +2062,13 @@ impl<'a, 'tcx> BuilderMethods<'a, 'tcx> for Builder<'a, 'tcx> {
                 {
                     Some((dst, src))
                 }
-                (None, None) | (Some(_), Some(_)) => None,
+
+                // HACK(eddyb) favor the source when they disagree.
+                (Some((dst, _)), Some((src, src_access_ty))) => {
+                    Some((self.pointercast(dst, self.type_ptr_to(src_access_ty)), src))
+                }
+
+                (None, None) => None,
             }
         });
 
@@ -2310,7 +2327,15 @@ impl<'a, 'tcx> BuilderMethods<'a, 'tcx> for Builder<'a, 'tcx> {
             )
             .unwrap()
             .with_type(access_ty);
-        self.bitcast(result, ty)
+        let val = self.bitcast(result, ty);
+        let success = self.icmp(IntPredicate::IntEQ, val, cmp);
+
+        let pair = [val, success];
+        let pair_type = self.type_struct(&pair.map(|v| v.ty), false);
+        self.emit()
+            .composite_construct(pair_type, None, pair.map(|v| v.def(self)))
+            .unwrap()
+            .with_type(pair_type)
     }
 
     fn atomic_rmw(
@@ -2576,9 +2601,11 @@ impl<'a, 'tcx> BuilderMethods<'a, 'tcx> for Builder<'a, 'tcx> {
                 };
                 let const_slice_as_elem_ids = |slice_ptr_and_len_ids: &[Word]| {
                     if let [ptr_id, len_id] = slice_ptr_and_len_ids[..] {
-                        if let SpirvConst::PtrTo { pointee } =
-                            self.builder.lookup_const_by_id(ptr_id)?
-                        {
+                        let mut ptr = self.builder.lookup_const_by_id(ptr_id)?;
+                        while let SpirvConst::BitCast(ptr_id) = ptr {
+                            ptr = self.builder.lookup_const_by_id(ptr_id)?;
+                        }
+                        if let SpirvConst::PtrTo { pointee } = ptr {
                             if let SpirvConst::Composite(elems) =
                                 self.builder.lookup_const_by_id(pointee)?
                             {
@@ -2623,6 +2650,16 @@ impl<'a, 'tcx> BuilderMethods<'a, 'tcx> for Builder<'a, 'tcx> {
                             kind: SpirvValueKind::Def(format_args_id),
                             ..
                         },
+                        _, // `&'static panic::Location<'static>`
+                    ] => format_args_id,
+
+                    // HACK(eddyb) `panic_nounwind_fmt` takes an extra argument.
+                    &[
+                        SpirvValue {
+                            kind: SpirvValueKind::Def(format_args_id),
+                            ..
+                        },
+                        _, // `force_no_backtrace: bool`
                         _, // `&'static panic::Location<'static>`
                     ] => format_args_id,
 

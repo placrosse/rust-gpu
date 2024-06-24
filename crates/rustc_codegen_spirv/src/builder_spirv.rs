@@ -4,7 +4,7 @@ use crate::spirv_type::SpirvType;
 use crate::symbols::Symbols;
 use crate::target::SpirvTarget;
 use crate::target_feature::TargetFeature;
-use rspirv::dr::{Block, Builder, Module, Operand};
+use rspirv::dr::{Block, Builder, Instruction, Module, Operand};
 use rspirv::spirv::{
     AddressingModel, Capability, MemoryModel, Op, SourceLanguage, StorageClass, Word,
 };
@@ -252,6 +252,9 @@ pub enum SpirvConst<'a, 'tcx> {
     //
     // FIXME(eddyb) replace this with `qptr` handling of constant data.
     ConstDataFromAlloc(ConstAllocation<'tcx>),
+
+    // HACK(eddyb) using `OpSpecConstantOp`+`OpBitcast` for illegal constants.
+    BitCast(Word),
 }
 
 impl<'tcx> SpirvConst<'_, 'tcx> {
@@ -286,6 +289,8 @@ impl<'tcx> SpirvConst<'_, 'tcx> {
             SpirvConst::Composite(fields) => SpirvConst::Composite(arena_alloc_slice(cx, fields)),
 
             SpirvConst::ConstDataFromAlloc(alloc) => SpirvConst::ConstDataFromAlloc(alloc),
+
+            SpirvConst::BitCast(v) => SpirvConst::BitCast(v),
         }
     }
 }
@@ -605,6 +610,23 @@ impl<'tcx> BuilderSpirv<'tcx> {
             SpirvConst::PtrTo { pointee } => {
                 builder.variable(ty, None, StorageClass::Private, Some(pointee))
             }
+
+            SpirvConst::BitCast(v) => {
+                let id = builder.id();
+                builder
+                    .module_mut()
+                    .types_global_values
+                    .push(Instruction::new(
+                        Op::SpecConstantOp,
+                        Some(ty),
+                        Some(id),
+                        vec![
+                            Operand::LiteralSpecConstantOpInteger(Op::Bitcast),
+                            Operand::IdRef(v),
+                        ],
+                    ));
+                id
+            }
         };
         #[allow(clippy::match_same_arms)]
         let legal = match val {
@@ -678,6 +700,11 @@ impl<'tcx> BuilderSpirv<'tcx> {
             SpirvConst::ConstDataFromAlloc(_) => Err(IllegalConst::Shallow(
                 LeafIllegalConst::UntypedConstDataFromAlloc,
             )),
+
+            SpirvConst::BitCast(_) => {
+                // HACK(eddyb) allowed for `qptr`+`reduce` experiments.
+                Ok(())
+            }
         };
         let val = val.tcx_arena_alloc_slices(cx);
         assert_matches!(

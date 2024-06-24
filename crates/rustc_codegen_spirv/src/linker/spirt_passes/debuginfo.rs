@@ -6,8 +6,8 @@ use smallvec::SmallVec;
 use spirt::transform::{InnerInPlaceTransform, Transformer};
 use spirt::visit::InnerVisit;
 use spirt::{
-    spv, Attr, AttrSetDef, ConstCtor, Context, ControlNode, ControlNodeKind, DataInstKind,
-    InternedStr, Module, OrdAssertEq, Value,
+    Attr, AttrSetDef, ConstKind, Context, ControlNode, ControlNodeKind, DataInstKind, InternedStr,
+    Module, OrdAssertEq, Value,
 };
 
 /// Replace our custom extended instruction debuginfo with standard SPIR-V ones.
@@ -38,7 +38,6 @@ pub fn convert_custom_debuginfo_to_spv(module: &mut Module) {
 
     let mut transformer = CustomDebuginfoToSpv {
         cx,
-        wk: &super::SpvSpecWithExtras::get().well_known,
         custom_ext_inst_set: cx.intern(&custom_insts::CUSTOM_EXT_INST_SET[..]),
     };
     for func in all_funcs {
@@ -48,7 +47,6 @@ pub fn convert_custom_debuginfo_to_spv(module: &mut Module) {
 
 struct CustomDebuginfoToSpv<'a> {
     cx: &'a Context,
-    wk: &'static super::SpvWellKnownWithExtras,
 
     /// Interned name for our custom "extended instruction set"
     /// (see `crate::custom_insts` for more details).
@@ -83,6 +81,7 @@ impl Transformer for CustomDebuginfoToSpv<'_> {
                 if let DataInstKind::SpvExtInst {
                     ext_set,
                     inst: ext_inst,
+                    lowering: _,
                 } = self.cx[data_inst_def.form].kind
                 {
                     if ext_set == self.custom_ext_inst_set {
@@ -95,23 +94,20 @@ impl Transformer for CustomDebuginfoToSpv<'_> {
                                 col_start: col,
                                 col_end: _,
                             } => {
-                                let const_ctor = |v: Value| match v {
-                                    Value::Const(ct) => &self.cx[ct].ctor,
+                                let expect_const = |v| match v {
+                                    Value::Const(ct) => ct,
                                     _ => unreachable!(),
                                 };
-                                let const_str = |v: Value| match const_ctor(v) {
-                                    &ConstCtor::SpvStringLiteralForExtInst(s) => s,
+                                let const_str = |v| match self.cx[expect_const(v)].kind {
+                                    ConstKind::SpvStringLiteralForExtInst(s) => s,
                                     _ => unreachable!(),
                                 };
-                                let const_u32 = |v: Value| match const_ctor(v) {
-                                    ConstCtor::SpvInst(spv_inst) => {
-                                        assert!(spv_inst.opcode == self.wk.OpConstant);
-                                        match spv_inst.imms[..] {
-                                            [spv::Imm::Short(_, x)] => x,
-                                            _ => unreachable!(),
-                                        }
-                                    }
-                                    _ => unreachable!(),
+                                let const_u32 = |v| {
+                                    expect_const(v)
+                                        .as_scalar(self.cx)
+                                        .unwrap()
+                                        .int_as_u32()
+                                        .unwrap()
                                 };
                                 current_file_line_col =
                                     Some((const_str(file), const_u32(line), const_u32(col)));

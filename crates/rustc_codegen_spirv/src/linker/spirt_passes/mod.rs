@@ -6,9 +6,11 @@ pub(crate) mod diagnostics;
 mod fuse_selects;
 mod reduce;
 
+use crate::custom_insts;
 use lazy_static::lazy_static;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet, FxIndexSet};
 use spirt::func_at::FuncAt;
+use spirt::qptr::QPtrOp;
 use spirt::transform::InnerInPlaceTransform;
 use spirt::visit::{InnerVisit, Visitor};
 use spirt::{
@@ -17,7 +19,6 @@ use spirt::{
     FuncDefBody, GlobalVar, Module, Type, Value,
 };
 use std::collections::VecDeque;
-use std::hash::Hash;
 use std::iter;
 
 // HACK(eddyb) `spv::spec::Spec` with extra `WellKnown`s (that should be upstreamed).
@@ -93,13 +94,12 @@ macro_rules! def_spv_spec_with_extra_well_known {
 }
 def_spv_spec_with_extra_well_known! {
     opcode: spv::spec::Opcode = [
-        OpTypeVoid,
+        OpSelect,
 
-        OpConstantComposite,
-
-        OpBitcast,
-        OpCompositeInsert,
-        OpCompositeExtract,
+        OpConstantNull,
+        OpSpecConstantOp,
+        OpConvertUToPtr,
+        OpConvertPtrToU,
     ],
     operand_kind: spv::spec::OperandKind = [
         ExecutionModel,
@@ -108,6 +108,21 @@ def_spv_spec_with_extra_well_known! {
         UserTypeGOOGLE,
     ],
 }
+
+const QPTR_LAYOUT_CONFIG: &spirt::qptr::LayoutConfig = &spirt::qptr::LayoutConfig {
+    abstract_bool_size_align: (1, 1),
+    logical_ptr_size_align: (4, 4),
+    ..spirt::qptr::LayoutConfig::VULKAN_SCALAR_LAYOUT
+};
+const QPTR_SIZED_UINT: spirt::scalar::Type = {
+    let (qptr_size, _) = QPTR_LAYOUT_CONFIG.logical_ptr_size_align;
+    spirt::scalar::Type::UInt(
+        match spirt::scalar::IntWidth::try_from_bits(qptr_size * 8) {
+            Some(w) => w,
+            None => unreachable!(),
+        },
+    )
+};
 
 /// Run intra-function passes on all `Func` definitions in the `Module`.
 //
@@ -141,28 +156,52 @@ pub(super) fn run_func_passes<P>(
         collector.seen_funcs
     };
 
+    let mut needs_qptr_lifting = false;
+
     for name in passes {
         let name = name.as_ref();
 
         // HACK(eddyb) not really a function pass.
         if name == "qptr" {
-            let layout_config = &spirt::qptr::LayoutConfig {
-                abstract_bool_size_align: (1, 1),
-                logical_ptr_size_align: (4, 4),
-                ..spirt::qptr::LayoutConfig::VULKAN_SCALAR_LAYOUT
-            };
-
             let profiler = before_pass("qptr::lower_from_spv_ptrs", module);
-            spirt::passes::qptr::lower_from_spv_ptrs(module, layout_config);
+            spirt::passes::qptr::lower_from_spv_ptrs(module, QPTR_LAYOUT_CONFIG);
             after_pass("qptr::lower_from_spv_ptrs", module, profiler);
 
-            let profiler = before_pass("qptr::analyze_uses", module);
-            spirt::passes::qptr::analyze_uses(module, layout_config);
-            after_pass("qptr::analyze_uses", module, profiler);
+            let profiler = before_pass("qptr::partition_and_propagate", module);
 
-            let profiler = before_pass("qptr::lift_to_spv_ptrs", module);
-            spirt::passes::qptr::lift_to_spv_ptrs(module, layout_config);
-            after_pass("qptr::lift_to_spv_ptrs", module, profiler);
+            let mut iterations = 0;
+            let start = std::time::Instant::now();
+            loop {
+                if iterations >= 1000 {
+                    // FIXME(eddyb) maybe attach a SPIR-T diagnostic instead?
+                    eprintln!(
+                        "[WARNING] qptr::partition_and_propagate: giving up on fixpoint after {iterations} iterations (took {:?})",
+                        start.elapsed()
+                    );
+                    break;
+                }
+                iterations += 1;
+
+                spirt::passes::qptr::partition_and_propagate(module, QPTR_LAYOUT_CONFIG);
+                // HACK(eddyb) `partition_and_propagate` can create inputs/outputs
+                // into/from control regions/nodes, that aren't actually needed,
+                // so this is a stop-gap solution to prevent many spurious phis, but
+                // more importantly, to prevent control-flow propagation of `qptr`s.
+                let mut any_changes = false;
+                for &func in &all_funcs {
+                    if let DeclDef::Present(func_def_body) = &mut module.funcs[func].def {
+                        // FIXME(eddyb) avoid doing this except where changes occurred.
+                        any_changes |= remove_unused_values_in_func(cx, func_def_body);
+                    }
+                }
+                if !any_changes {
+                    break;
+                }
+            }
+            after_pass("qptr::partition_and_propagate", module, profiler);
+
+            // HACK(eddyb) see `if needs_qptr_lifting` for where this is handled.
+            needs_qptr_lifting = true;
 
             continue;
         }
@@ -186,6 +225,19 @@ pub(super) fn run_func_passes<P>(
             }
         }
         after_pass(full_name, module, profiler);
+    }
+
+    // HACK(eddyb) `qptr` is less of a "pass" and more of a "dialect", and it
+    // largely doesn't make sense to have additional transformations between
+    // "lifting `qptr` back to `OpTypePointer`s" and "lifting SPIR-T to SPIR-V".
+    if needs_qptr_lifting {
+        let profiler = before_pass("qptr::analyze_uses", module);
+        spirt::passes::qptr::analyze_uses(module, QPTR_LAYOUT_CONFIG);
+        after_pass("qptr::analyze_uses", module, profiler);
+
+        let profiler = before_pass("qptr::lift_to_spv_ptrs", module);
+        spirt::passes::qptr::lift_to_spv_ptrs(module, QPTR_LAYOUT_CONFIG);
+        after_pass("qptr::lift_to_spv_ptrs", module, profiler);
     }
 }
 
@@ -234,10 +286,12 @@ impl Visitor<'_> for ReachableUseCollector<'_> {
 }
 
 // FIXME(eddyb) maybe this should be provided by `spirt::visit`.
-struct VisitAllControlRegionsAndNodes<S, VCR, VCN> {
+struct VisitAllControlRegionsAndNodes<S, ENCR, EXCR, ENCN, EXCN> {
     state: S,
-    visit_control_region: VCR,
-    visit_control_node: VCN,
+    enter_control_region: ENCR,
+    exit_control_region: EXCR,
+    enter_control_node: ENCN,
+    exit_control_node: EXCN,
 }
 const _: () = {
     use spirt::{func_at::*, visit::*, *};
@@ -245,9 +299,11 @@ const _: () = {
     impl<
         'a,
         S,
-        VCR: FnMut(&mut S, FuncAt<'a, ControlRegion>),
-        VCN: FnMut(&mut S, FuncAt<'a, ControlNode>),
-    > Visitor<'a> for VisitAllControlRegionsAndNodes<S, VCR, VCN>
+        ENCR: FnMut(&mut S, FuncAt<'a, ControlRegion>),
+        EXCR: FnMut(&mut S, FuncAt<'a, ControlRegion>),
+        ENCN: FnMut(&mut S, FuncAt<'a, ControlNode>),
+        EXCN: FnMut(&mut S, FuncAt<'a, ControlNode>),
+    > Visitor<'a> for VisitAllControlRegionsAndNodes<S, ENCR, EXCR, ENCN, EXCN>
     {
         // FIXME(eddyb) this is excessive, maybe different kinds of
         // visitors should exist for module-level and func-level?
@@ -259,92 +315,17 @@ const _: () = {
         fn visit_func_use(&mut self, _: Func) {}
 
         fn visit_control_region_def(&mut self, func_at_control_region: FuncAt<'a, ControlRegion>) {
-            (self.visit_control_region)(&mut self.state, func_at_control_region);
+            (self.enter_control_region)(&mut self.state, func_at_control_region);
             func_at_control_region.inner_visit_with(self);
+            (self.exit_control_region)(&mut self.state, func_at_control_region);
         }
         fn visit_control_node_def(&mut self, func_at_control_node: FuncAt<'a, ControlNode>) {
-            (self.visit_control_node)(&mut self.state, func_at_control_node);
-            // HACK(eddyb) accidentally private `inner_visit_with` method.
-            fn control_node_inner_visit_with<'a>(
-                self_: FuncAt<'a, ControlNode>,
-                visitor: &mut impl Visitor<'a>,
-            ) {
-                let ControlNodeDef { kind, outputs } = self_.def();
-
-                match kind {
-                    ControlNodeKind::Block { insts } => {
-                        for func_at_inst in self_.at(*insts) {
-                            visitor.visit_data_inst_def(func_at_inst.def());
-                        }
-                    }
-                    ControlNodeKind::Select {
-                        kind: SelectionKind::BoolCond | SelectionKind::SpvInst(_),
-                        scrutinee,
-                        cases,
-                    } => {
-                        visitor.visit_value_use(scrutinee);
-                        for &case in cases {
-                            visitor.visit_control_region_def(self_.at(case));
-                        }
-                    }
-                    ControlNodeKind::Loop {
-                        initial_inputs,
-                        body,
-                        repeat_condition,
-                    } => {
-                        for v in initial_inputs {
-                            visitor.visit_value_use(v);
-                        }
-                        visitor.visit_control_region_def(self_.at(*body));
-                        visitor.visit_value_use(repeat_condition);
-                    }
-                }
-                for output in outputs {
-                    output.inner_visit_with(visitor);
-                }
-            }
-            control_node_inner_visit_with(func_at_control_node, self);
+            (self.enter_control_node)(&mut self.state, func_at_control_node);
+            func_at_control_node.inner_visit_with(self);
+            (self.exit_control_node)(&mut self.state, func_at_control_node);
         }
     }
 };
-
-// HACK(eddyb) this works around the accidental lack of `spirt::Value: Hash`.
-#[derive(Copy, Clone, PartialEq, Eq)]
-struct HashableValue(Value);
-#[allow(clippy::derived_hash_with_manual_eq)]
-impl Hash for HashableValue {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        use spirt::*;
-        #[derive(Hash)]
-        enum ValueH {
-            Const(Const),
-            ControlRegionInput {
-                region: ControlRegion,
-                input_idx: u32,
-            },
-            ControlNodeOutput {
-                control_node: ControlNode,
-                output_idx: u32,
-            },
-            DataInstOutput(DataInst),
-        }
-        match self.0 {
-            Value::Const(ct) => ValueH::Const(ct),
-            Value::ControlRegionInput { region, input_idx } => {
-                ValueH::ControlRegionInput { region, input_idx }
-            }
-            Value::ControlNodeOutput {
-                control_node,
-                output_idx,
-            } => ValueH::ControlNodeOutput {
-                control_node,
-                output_idx,
-            },
-            Value::DataInstOutput(inst) => ValueH::DataInstOutput(inst),
-        }
-        .hash(state);
-    }
-}
 
 // FIXME(eddyb) maybe this should be provided by `spirt::transform`.
 struct ReplaceValueWith<F>(F);
@@ -362,13 +343,20 @@ const _: () = {
 /// a function body (both `DataInst`s and `ControlRegion` inputs/outputs).
 //
 // FIXME(eddyb) should this be a dedicated pass?
-fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
+// HACK(eddyb) returns `true` if any changes were made
+fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) -> bool {
     // Avoid having to support unstructured control-flow.
     if func_def_body.unstructured_cfg.is_some() {
-        return;
+        return false;
     }
 
     let wk = &SpvSpecWithExtras::get().well_known;
+
+    let custom_ext_inst_set = cx.intern(&custom_insts::CUSTOM_EXT_INST_SET[..]);
+    let nop_inst_form = cx.intern(DataInstFormDef {
+        kind: DataInstKind::SpvInst(wk.OpNop.into(), spv::InstLowering::default()),
+        output_types: [].into_iter().collect(),
+    });
 
     struct Propagator {
         func_body_region: ControlRegion,
@@ -378,7 +366,7 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
 
         // FIXME(eddyb) entity-keyed dense sets might be better for performance,
         // but would require separate sets/maps for separate `Value` cases.
-        used: FxHashSet<HashableValue>,
+        used: FxHashSet<Value>,
 
         queue: VecDeque<Value>,
     }
@@ -396,7 +384,7 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
                     return;
                 }
             }
-            if self.used.insert(HashableValue(v)) {
+            if self.used.insert(v) {
                 self.queue.push_back(v);
             }
         }
@@ -427,7 +415,10 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
                             self.mark_used(func.at(case).def().outputs[output_idx as usize]);
                         }
                     }
-                    Value::DataInstOutput(inst) => {
+                    Value::DataInstOutput {
+                        inst,
+                        output_idx: _,
+                    } => {
                         for &input in &func.at(inst).def().inputs {
                             self.mark_used(input);
                         }
@@ -447,8 +438,9 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
                 used: Default::default(),
                 queue: Default::default(),
             },
-            visit_control_region: |_: &mut _, _| {},
-            visit_control_node:
+            enter_control_region: |_: &mut _, _| {},
+            exit_control_region: |_: &mut _, _| {},
+            enter_control_node:
                 |propagator: &mut Propagator, func_at_control_node: FuncAt<'_, ControlNode>| {
                     if let ControlNodeKind::Loop { body, .. } = func_at_control_node.def().kind {
                         propagator
@@ -456,21 +448,24 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
                             .insert(body, func_at_control_node.position);
                     }
                 },
+            exit_control_node: |_: &mut _, _| {},
         };
         func_def_body.inner_visit_with(&mut visitor);
         visitor.state
     };
 
     // HACK(eddyb) this kind of random-access is easier than using `spirt::transform`.
-    let mut all_control_nodes = vec![];
+    let mut all_control_nodes_in_post_order = vec![];
 
     let used_values = {
         let mut visitor = VisitAllControlRegionsAndNodes {
             state: propagator,
-            visit_control_region: |_: &mut _, _| {},
-            visit_control_node:
+            enter_control_region: |_: &mut _, _| {},
+            exit_control_region: |_: &mut _, _| {},
+            enter_control_node: |_: &mut _, _| {},
+            exit_control_node:
                 |propagator: &mut Propagator, func_at_control_node: FuncAt<'_, ControlNode>| {
-                    all_control_nodes.push(func_at_control_node.position);
+                    all_control_nodes_in_post_order.push(func_at_control_node.position);
 
                     let mut mark_used_and_propagate = |v| {
                         propagator.mark_used(v);
@@ -479,20 +474,61 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
                     match func_at_control_node.def().kind {
                         ControlNodeKind::Block { insts } => {
                             for func_at_inst in func_at_control_node.at(insts) {
+                                let inst_form_def = &cx[func_at_inst.def().form];
                                 // Ignore pure instructions (i.e. they're only used
                                 // if their output value is used, from somewhere else).
-                                if let DataInstKind::SpvInst(spv_inst) =
-                                    &cx[func_at_inst.def().form].kind
-                                {
+                                let is_pure = match &cx[func_at_inst.def().form].kind {
+                                    DataInstKind::Scalar(_)
+                                    | DataInstKind::Vector(_)
+                                    | DataInstKind::QPtr(
+                                        // FIXME(eddyb) this is literally all of them, other than
+                                        // `Load`/`Store`, almost as if there's a split between
+                                        // "pointer computation" and "memory access".
+                                        QPtrOp::FuncLocalVar(_)
+                                        | QPtrOp::HandleArrayIndex
+                                        | QPtrOp::BufferData
+                                        | QPtrOp::BufferDynLen { .. }
+                                        | QPtrOp::Offset(_)
+                                        | QPtrOp::DynOffset { .. }
+
+                                        // HACK(eddyb) removing dead loads allows
+                                        // unblocking `qptr::partition_and_propagate`
+                                        // when the load doesn't fit a previous store.
+                                        | QPtrOp::Load { .. }
+                                    ) => true,
+
                                     // HACK(eddyb) small selection relevant for now,
                                     // but should be extended using e.g. a bitset.
-                                    if [wk.OpNop, wk.OpCompositeInsert].contains(&spv_inst.opcode) {
-                                        continue;
+                                    DataInstKind::SpvInst(spv_inst, _) => [
+                                        wk.OpNop,
+                                        wk.OpSelect,
+                                        wk.OpBitcast,
+                                    ]
+                                    .contains(&spv_inst.opcode),
+
+                                    DataInstKind::QPtr(QPtrOp::Store { .. })
+                                    | DataInstKind::FuncCall(_)
+                                    | DataInstKind::SpvExtInst { .. } => false,
+                                };
+                                if is_pure {
+                                    continue;
+                                }
+                                let output_count = inst_form_def.output_types.len() as u32;
+                                // FIXME(eddyb) this is less efficient than tracking `DataInst`s.
+                                if output_count == 0 {
+                                    // HACK(eddyb) still need to mark the instruction's
+                                    // inputs as used, while it has no output `Value`.
+                                    for &input in &func_at_inst.def().inputs {
+                                        mark_used_and_propagate(input);
+                                    }
+                                } else {
+                                    for output_idx in 0..output_count {
+                                        mark_used_and_propagate(Value::DataInstOutput {
+                                            inst: func_at_inst.position,
+                                            output_idx,
+                                        });
                                     }
                                 }
-                                mark_used_and_propagate(Value::DataInstOutput(
-                                    func_at_inst.position,
-                                ));
                             }
                         }
 
@@ -516,46 +552,66 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
         propagator.used
     };
 
+    let mut any_changes = false;
+
     // FIXME(eddyb) entity-keyed dense maps might be better for performance,
     // but would require separate maps for separate `Value` cases.
     let mut value_replacements = FxHashMap::default();
 
     // Remove anything that didn't end up marked as used (directly or indirectly).
-    for control_node in all_control_nodes {
+    for control_node in all_control_nodes_in_post_order {
         let control_node_def = func_def_body.at(control_node).def();
         match &control_node_def.kind {
             &ControlNodeKind::Block { insts } => {
                 let mut all_nops = true;
                 let mut func_at_inst_iter = func_def_body.at_mut(insts).into_iter();
                 while let Some(mut func_at_inst) = func_at_inst_iter.next() {
-                    if let DataInstKind::SpvInst(spv_inst) =
-                        &cx[func_at_inst.reborrow().def().form].kind
+                    let inst_form = func_at_inst.reborrow().def().form;
+                    if inst_form == nop_inst_form {
+                        continue;
+                    }
+
+                    let inst_form_def = &cx[func_at_inst.reborrow().def().form];
+
+                    // HACK(eddyb) `Block`s shouldn't be kept alive by debuginfo.
+                    if let DataInstKind::SpvExtInst {
+                        ext_set,
+                        inst: ext_inst,
+                        lowering: _,
+                    } = inst_form_def.kind
                     {
-                        if spv_inst.opcode == wk.OpNop {
+                        if ext_set == custom_ext_inst_set
+                            && custom_insts::CustomOp::decode(ext_inst).is_debuginfo()
+                        {
                             continue;
                         }
                     }
-                    if !used_values
-                        .contains(&HashableValue(Value::DataInstOutput(func_at_inst.position)))
-                    {
+
+                    let output_count = inst_form_def.output_types.len() as u32;
+                    // FIXME(eddyb) this is less efficient than tracking `DataInst`s.
+                    let used = output_count == 0
+                        || (0..output_count).any(|output_idx| {
+                            used_values.contains(&Value::DataInstOutput {
+                                inst: func_at_inst.position,
+                                output_idx,
+                            })
+                        });
+                    if !used {
+                        any_changes = true;
+
                         // Replace the removed `DataInstDef` itself with `OpNop`,
                         // removing the ability to use its "name" as a value.
-                        //
-                        // FIXME(eddyb) cache the interned `OpNop`.
                         *func_at_inst.def() = DataInstDef {
                             attrs: Default::default(),
-                            form: cx.intern(DataInstFormDef {
-                                kind: DataInstKind::SpvInst(wk.OpNop.into()),
-                                output_type: None,
-                            }),
+                            form: nop_inst_form,
                             inputs: iter::empty().collect(),
                         };
                         continue;
                     }
+
                     all_nops = false;
                 }
-                // HACK(eddyb) because we can't remove list elements yet, we
-                // instead replace blocks of `OpNop`s with empty ones.
+                // FIXME(eddyb) remove instead of just replacing with empty `Block`.
                 if all_nops {
                     func_def_body.at_mut(control_node).def().kind = ControlNodeKind::Block {
                         insts: Default::default(),
@@ -574,7 +630,9 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
                         output_idx: original_idx as u32,
                     };
 
-                    if !used_values.contains(&HashableValue(original_output)) {
+                    if !used_values.contains(&original_output) {
+                        any_changes = true;
+
                         // Remove the output definition and corresponding value from all cases.
                         func_def_body
                             .at_mut(control_node)
@@ -593,9 +651,32 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
                             control_node,
                             output_idx: new_idx as u32,
                         };
-                        value_replacements.insert(HashableValue(original_output), new_output);
+                        value_replacements.insert(original_output, new_output);
                     }
                     new_idx += 1;
+                }
+
+                // FIXME(eddyb) reacting to empty blocks (created just above)
+                // means this can cause more value definitions to become unused
+                // (specifically the `scrutinee` of the `Select`), but that can't
+                // be easily detected without a second pass over the function.
+                let all_cases_empty = cases.iter().all(|&case| {
+                    let func_at_case = func_def_body.at(case);
+                    func_at_case.def().outputs.is_empty()
+                        && func_at_case
+                            .at_children()
+                            .into_iter()
+                            .all(|func_at_child_node| match func_at_child_node.def().kind {
+                                ControlNodeKind::Block { insts } => insts.is_empty(),
+                                _ => false,
+                            })
+                });
+
+                // FIXME(eddyb) remove instead of just replacing with empty `Block`.
+                if all_cases_empty {
+                    func_def_body.at_mut(control_node).def().kind = ControlNodeKind::Block {
+                        insts: Default::default(),
+                    };
                 }
             }
             ControlNodeKind::Loop {
@@ -612,7 +693,9 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
                         input_idx: original_idx as u32,
                     };
 
-                    if !used_values.contains(&HashableValue(original_input)) {
+                    if !used_values.contains(&original_input) {
+                        any_changes = true;
+
                         // Remove the input definition and corresponding values.
                         match &mut func_def_body.at_mut(control_node).def().kind {
                             ControlNodeKind::Loop { initial_inputs, .. } => {
@@ -632,7 +715,7 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
                             region: body,
                             input_idx: new_idx as u32,
                         };
-                        value_replacements.insert(HashableValue(original_input), new_input);
+                        value_replacements.insert(original_input, new_input);
                     }
                     new_idx += 1;
                 }
@@ -643,7 +726,12 @@ fn remove_unused_values_in_func(cx: &Context, func_def_body: &mut FuncDefBody) {
     if !value_replacements.is_empty() {
         func_def_body.inner_in_place_transform_with(&mut ReplaceValueWith(|v| match v {
             Value::Const(_) => None,
-            _ => value_replacements.get(&HashableValue(v)).copied(),
+            _ => value_replacements.get(&v).map(|&new_v| {
+                any_changes = true;
+                new_v
+            }),
         }));
     }
+
+    any_changes
 }
