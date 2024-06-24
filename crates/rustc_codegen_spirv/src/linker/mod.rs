@@ -221,15 +221,15 @@ pub fn link(
         simple_passes::check_fragment_insts(sess, &output)?;
     }
 
-    // HACK(eddyb) this has to run before the `report_and_remove_zombies` pass,
-    // so that any zombies that are passed as call arguments, but eventually unused,
-    // won't be (incorrectly) considered used.
-    {
-        let _timer = sess.timer("link_remove_unused_params");
-        output = param_weakening::remove_unused_params(output);
-    }
-
     if opts.early_report_zombies {
+        // HACK(eddyb) this has to run before the `report_and_remove_zombies` pass,
+        // so that any zombies that are passed as call arguments, but eventually unused,
+        // won't be (incorrectly) considered used.
+        {
+            let _timer = sess.timer("link_remove_unused_params");
+            output = param_weakening::remove_unused_params(output);
+        }
+
         // HACK(eddyb) `report_and_remove_zombies` is bad at determining whether
         // some things are dead (such as whole blocks), and there's no reason to
         // *not* run DCE, given SPIR-T exists and makes DCE mandatory, but we're

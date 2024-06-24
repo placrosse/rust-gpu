@@ -159,7 +159,7 @@ pub(crate) fn provide(providers: &mut Providers) {
 
         #[allow(clippy::match_like_matches_macro)]
         let hide_niche = match ty.kind() {
-            ty::Bool => true,
+            // ty::Bool => true,
             _ => false,
         };
 

@@ -59,7 +59,11 @@ impl<'tcx> CodegenCx<'tcx> {
     // MiscMethods::get_fn_addr -> get_fn_ext -> declare_fn_ext
     // PreDefineMethods::predefine_fn -> declare_fn_ext
     fn declare_fn_ext(&self, instance: Instance<'tcx>, linkage: Option<LinkageType>) -> SpirvValue {
-        let control = attrs_to_spirv(self.tcx.codegen_fn_attrs(instance.def_id()));
+        let codegen_fn_attrs = self.tcx.codegen_fn_attrs(instance.def_id());
+        let mut control = attrs_to_spirv(codegen_fn_attrs);
+        if codegen_fn_attrs.inline == InlineAttr::None && instance.def.requires_inline(self.tcx) {
+            control.insert(FunctionControl::INLINE);
+        }
         let fn_abi = self.fn_abi_of_instance(instance, ty::List::empty());
         let span = self.tcx.def_span(instance.def_id());
         let function_type = fn_abi.spirv_type(span, self);
@@ -186,13 +190,14 @@ impl<'tcx> CodegenCx<'tcx> {
 
         // HACK(eddyb) there is no good way to identify these definitions
         // (e.g. no `#[lang = "..."]` attribute), but this works well enough.
-        if [
-            "<core::fmt::Arguments>::new_v1",
-            "<core::fmt::Arguments>::new_const",
-        ]
-        .contains(&&demangled_symbol_name[..])
-        {
-            self.fmt_args_new_fn_ids.borrow_mut().insert(fn_id);
+        match &demangled_symbol_name[..] {
+            "core::panicking::panic_nounwind_fmt" => {
+                self.panic_entry_point_ids.borrow_mut().insert(fn_id);
+            }
+            "<core::fmt::Arguments>::new_v1" | "<core::fmt::Arguments>::new_const" => {
+                self.fmt_args_new_fn_ids.borrow_mut().insert(fn_id);
+            }
+            _ => {}
         }
 
         // HACK(eddyb) there is no good way to identify these definitions
