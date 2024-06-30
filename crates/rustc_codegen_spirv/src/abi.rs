@@ -399,7 +399,7 @@ impl<'tcx> ConvSpirvType<'tcx> for TyAndLayout<'tcx> {
                     // perfectly, in every way that could potentially affect ABI.
                     if self.fields.offset(i) == Size::ZERO
                         && field.size == self.size
-                        && field.align == self.align
+                        && field.align.abi == self.align.abi
                         && field.abi == self.abi
                     {
                         return field.spirv_type(span, cx);
@@ -616,21 +616,72 @@ fn trans_aggregate<'tcx>(cx: &CodegenCx<'tcx>, span: Span, ty: TyAndLayout<'tcx>
         FieldsShape::Union(_) => {
             assert!(!ty.is_unsized(), "{ty:#?}");
 
-            // Represent the `union` with its largest case, which should work
-            // for at least `MaybeUninit<T>` (which is between `T` and `()`),
-            // but also potentially some other ones as well.
+            // Represent the `union` with its sole non-ZST case, which should work
+            // for at least `MaybeUninit<T>` (which is an union of `T` and `()`).
             // NOTE(eddyb) even if long-term this may become a byte array, that
             // only works for "data types" and not "opaque handles" (images etc.).
-            let largest_case = (0..ty.fields.count())
+            let mut non_zst_cases = (0..ty.fields.count())
                 .map(|i| ty.field(cx, i))
-                .max_by_key(|case| case.size);
+                .filter(|case| !case.is_zst());
+            match (non_zst_cases.next(), non_zst_cases.next()) {
+                (None, _) if ty.is_1zst() => create_zst(cx, span, ty),
+                (Some(sole_non_zst_case), None) if ty.align.abi == sole_non_zst_case.align.abi => {
+                    assert_eq!(ty.size, sole_non_zst_case.size);
+                    sole_non_zst_case.spirv_type(span, cx)
+                }
 
-            if let Some(case) = largest_case {
-                assert_eq!(ty.size, case.size);
-                case.spirv_type(span, cx)
-            } else {
-                assert_eq!(ty.size, Size::ZERO);
-                create_zst(cx, span, ty)
+                // FIXME(eddyb) can't risk using the largest case when smaller
+                // non-ZST cases exist, at least not without additional effort
+                // of guaranteeing that the largest case subsumes all smaller
+                // cases (at the very least in terms of padding).
+                (nzc0, nzc1) => {
+                    let non_zst_cases = nzc0.into_iter().chain(nzc1).chain(non_zst_cases);
+
+                    // HACK(eddyb) still try to find a viable candidate case to
+                    // subsume all others (at least through simple heuristics),
+                    // as some `union`s are commonly used similarly to `transmute`
+                    // (e.g. `core::ptr::metadata::PtrRepr`) and therefore have
+                    // multiple cases of the same size (and very similar types).
+                    let fully_filling_cases = non_zst_cases.filter(|case| {
+                        let leaf_scalars_total_unpadded_size = match case.abi {
+                            Abi::Uninhabited => Size::ZERO,
+                            Abi::Scalar(s) => s.size(cx),
+                            Abi::Vector { element, count } => element.size(cx) * count,
+                            Abi::ScalarPair(a, b) => a.size(cx) + b.size(cx),
+                            // FIXME(eddyb) support by recursing? but also this
+                            // "require no padding" approach isn't general enough.
+                            Abi::Aggregate { .. } => return false,
+                        };
+                        case.size == leaf_scalars_total_unpadded_size
+                            && ty.size == case.size
+                            && ty.align.abi == case.align.abi
+                    });
+
+                    // FIXME(eddyb) this picks just the first `union` case that
+                    // happens to fit the whole `union` size with no padding,
+                    // which might work but isn't a good general approach.
+                    let filler_type_from_case = fully_filling_cases
+                        .map(|case| case.spirv_type(span, cx))
+                        .next();
+
+                    let filler_type = filler_type_from_case
+                        .unwrap_or_else(|| cx.type_padding_filler(ty.size, ty.align.abi));
+
+                    if true {
+                        filler_type
+                    } else {
+                        // HACK(eddyb) this only exists to give a name to the `union`.
+                        SpirvType::Adt {
+                            def_id: def_id_for_spirv_type_adt(ty),
+                            size: Some(ty.size),
+                            align: ty.align.abi,
+                            field_types: &[filler_type],
+                            field_offsets: &[Size::ZERO],
+                            field_names: None,
+                        }
+                        .def_with_name(cx, span, TyLayoutNameKey::from(ty))
+                    }
+                }
             }
         }
         FieldsShape::Array { stride, count } => {
@@ -724,6 +775,29 @@ fn trans_struct<'tcx>(cx: &CodegenCx<'tcx>, span: Span, ty: TyAndLayout<'tcx>) -
                 field_names.push(cx.sym.discriminant);
             } else {
                 cx.tcx.sess.fatal("Variants::Multiple has multiple fields")
+            }
+
+            assert_eq!(i, ty.fields.count() - 1);
+
+            // HACK(eddyb) fill the space before/after the discriminant, so
+            // that by-value usage of the resulting `OpTypeStruct` doesn't treat
+            // variant data as padding (and therefore `undef`).
+            // FIXME(eddyb) this is worse than taking advantage of known leaves
+            // within the variants, especially with a single non-ZST variant.
+            for (pad_start, pad_end) in [(Size::ZERO, offset), (offset + field_ty.size, ty.size)] {
+                let pad_align = align
+                    .restrict_for_offset(pad_start)
+                    .restrict_for_offset(pad_end);
+                let pad_size = pad_end - pad_start;
+                if pad_size != Size::ZERO {
+                    field_types.push(cx.type_padding_filler(pad_size, pad_align));
+                    field_offsets.push(pad_start);
+                    field_names.push(Symbol::intern(&format!(
+                        "_pad_{}_to_{}",
+                        pad_start.bytes(),
+                        pad_end.bytes()
+                    )));
+                }
             }
         };
     }
