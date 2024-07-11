@@ -17,15 +17,19 @@ mod atomics;
 mod barrier;
 mod demote_to_helper_invocation_ext;
 mod derivative;
+mod mesh_shading;
 mod primitive;
 mod ray_tracing;
+mod subgroup;
 
 pub use atomics::*;
 pub use barrier::*;
 pub use demote_to_helper_invocation_ext::*;
 pub use derivative::*;
+pub use mesh_shading::*;
 pub use primitive::*;
 pub use ray_tracing::*;
+pub use subgroup::*;
 
 /// Result is true if any component of `vector` is true, otherwise result is
 /// false.

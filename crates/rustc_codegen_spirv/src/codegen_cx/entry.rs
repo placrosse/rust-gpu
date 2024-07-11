@@ -266,25 +266,21 @@ impl<'tcx> CodegenCx<'tcx> {
             }
             ty => ty,
         };
-        let deduced_storage_class_from_ty = match element_ty {
-            SpirvType::Image { .. }
-            | SpirvType::Sampler
-            | SpirvType::SampledImage { .. }
-            | SpirvType::AccelerationStructureKhr { .. } => {
-                if is_ref {
-                    Some(StorageClass::UniformConstant)
-                } else {
-                    self.tcx.sess.span_err(
-                        hir_param.ty_span,
-                        format!(
-                            "entry parameter type must be by-reference: `&{}`",
-                            value_layout.ty,
-                        ),
-                    );
-                    None
-                }
+        let deduced_storage_class_from_ty = if element_ty.is_uniform_constant() {
+            if is_ref {
+                Some(StorageClass::UniformConstant)
+            } else {
+                self.tcx.sess.span_err(
+                    hir_param.ty_span,
+                    format!(
+                        "entry parameter type must be by-reference: `&{}`",
+                        value_layout.ty,
+                    ),
+                );
+                None
             }
-            _ => None,
+        } else {
+            None
         };
         // Storage classes can be specified via attribute. Compute that here, and emit diagnostics.
         let attr_storage_class = attrs.storage_class.map(|storage_class_attr| {
@@ -449,11 +445,12 @@ impl<'tcx> CodegenCx<'tcx> {
             ),
             Err(SpecConstant { id, default }) => {
                 let mut emit = self.emit_global();
-                let spec_const_id = emit.spec_constant_u32(value_spirv_type, default.unwrap_or(0));
+                let spec_const_id =
+                    emit.spec_constant_bit32(value_spirv_type, default.unwrap_or(0));
                 emit.decorate(
                     spec_const_id,
                     Decoration::SpecId,
-                    [Operand::LiteralInt32(id)],
+                    [Operand::LiteralBit32(id)],
                 );
                 (
                     Err("`#[spirv(spec_constant)]` is not an entry-point interface variable"),
@@ -524,28 +521,41 @@ impl<'tcx> CodegenCx<'tcx> {
             };
         let var_ptr_spirv_type;
         let (value_ptr, value_len) = if needs_interface_block && !has_explicit_interface_block {
-            let var_spirv_type = SpirvType::InterfaceBlock {
-                inner_type: value_spirv_type,
-            }
-            .def(hir_param.span, self);
-            var_ptr_spirv_type = self.type_ptr_to(var_spirv_type);
-
-            let value_ptr = bx.struct_gep(
-                var_spirv_type,
-                var_id.unwrap().with_type(var_ptr_spirv_type),
-                0,
-            );
-
-            let value_len = if is_unsized_with_len {
                 match self.lookup_type(value_spirv_type) {
-                    SpirvType::RuntimeArray { .. } => {}
-                    _ => {
-                        self.tcx.sess.span_err(
-                            hir_param.ty_span,
-                            "only plain slices are supported as unsized types",
-                        );
+                    SpirvType::RuntimeArray { element }
+                        if matches!(
+                            self.lookup_type(element),
+                            SpirvType::InterfaceBlock { .. }
+                        ) =>
+                    {
+                        // array of buffer descriptors
+                        var_ptr_spirv_type = self.type_ptr_to(value_spirv_type);
+                        (Ok(var_id.unwrap().with_type(var_ptr_spirv_type)), None)
                     }
-                }
+                    _ => {
+                        // single buffer descriptor
+                    let var_spirv_type = SpirvType::InterfaceBlock {
+                        inner_type: value_spirv_type,
+                    }
+                    .def(hir_param.span, self);
+                    var_ptr_spirv_type = self.type_ptr_to(var_spirv_type);
+
+                    let value_ptr = bx.struct_gep(
+                        var_spirv_type,
+                        var_id.unwrap().with_type(var_ptr_spirv_type),
+                        0,
+                    );
+
+                    let value_len = if is_unsized_with_len {
+                        match self.lookup_type(value_spirv_type) {
+                            SpirvType::RuntimeArray { .. } => {}
+                            _ => {
+                                self.tcx.sess.span_err(
+                                    hir_param.ty_span,
+                                    "only plain slices are supported as unsized types",
+                                );
+                            }
+                        }
 
                 // FIXME(eddyb) shouldn't this be `usize`?
                 let len_spirv_type = self.type_isize();
@@ -566,7 +576,9 @@ impl<'tcx> CodegenCx<'tcx> {
                 None
             };
 
-            (Ok(value_ptr), value_len)
+                    (Ok(value_ptr), value_len)
+                    }
+                }
         } else {
             var_ptr_spirv_type = self.type_ptr_to(value_spirv_type);
 
@@ -694,7 +706,7 @@ impl<'tcx> CodegenCx<'tcx> {
             self.emit_global().decorate(
                 var_id.unwrap(),
                 Decoration::DescriptorSet,
-                std::iter::once(Operand::LiteralInt32(descriptor_set.value)),
+                std::iter::once(Operand::LiteralBit32(descriptor_set.value)),
             );
             decoration_supersedes_location = true;
         }
@@ -708,7 +720,7 @@ impl<'tcx> CodegenCx<'tcx> {
             self.emit_global().decorate(
                 var_id.unwrap(),
                 Decoration::Binding,
-                std::iter::once(Operand::LiteralInt32(binding.value)),
+                std::iter::once(Operand::LiteralBit32(binding.value)),
             );
             decoration_supersedes_location = true;
         }
@@ -732,6 +744,27 @@ impl<'tcx> CodegenCx<'tcx> {
             self.emit_global()
                 .decorate(var_id.unwrap(), Decoration::Invariant, std::iter::empty());
         }
+        if let Some(per_primitive_ext) = attrs.per_primitive_ext {
+            if storage_class != Ok(StorageClass::Output) {
+                self.tcx.sess.span_fatal(
+                    per_primitive_ext.span,
+                    "`#[spirv(per_primitive_ext)]` is only valid on Output variables",
+                );
+            }
+            if !(execution_model == ExecutionModel::MeshEXT
+                || execution_model == ExecutionModel::MeshNV)
+            {
+                self.tcx.sess.span_fatal(
+                    per_primitive_ext.span,
+                    "`#[spirv(per_primitive_ext)]` is only valid in mesh shaders",
+                );
+            }
+            self.emit_global().decorate(
+                var_id.unwrap(),
+                Decoration::PerPrimitiveEXT,
+                std::iter::empty(),
+            );
+        }
 
         let is_subpass_input = match self.lookup_type(value_spirv_type) {
             SpirvType::Image {
@@ -753,7 +786,7 @@ impl<'tcx> CodegenCx<'tcx> {
                 self.emit_global().decorate(
                     var_id.unwrap(),
                     Decoration::InputAttachmentIndex,
-                    std::iter::once(Operand::LiteralInt32(attachment_index.value)),
+                    std::iter::once(Operand::LiteralBit32(attachment_index.value)),
                 );
             } else if is_subpass_input {
                 self.tcx
@@ -800,7 +833,7 @@ impl<'tcx> CodegenCx<'tcx> {
             self.emit_global().decorate(
                 var_id.unwrap(),
                 Decoration::Location,
-                std::iter::once(Operand::LiteralInt32(*location)),
+                std::iter::once(Operand::LiteralBit32(*location)),
             );
             *location += 1;
         }

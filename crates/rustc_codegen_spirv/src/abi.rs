@@ -4,7 +4,7 @@
 use crate::attr::{AggregatedSpirvAttributes, IntrinsicType};
 use crate::codegen_cx::CodegenCx;
 use crate::spirv_type::SpirvType;
-use rspirv::spirv::{StorageClass, Word};
+use rspirv::spirv::{Dim, ImageFormat, StorageClass, Word};
 use rustc_data_structures::fx::FxHashMap;
 use rustc_errors::ErrorGuaranteed;
 use rustc_index::Idx;
@@ -698,7 +698,7 @@ fn trans_aggregate<'tcx>(cx: &CodegenCx<'tcx>, span: Span, ty: TyAndLayout<'tcx>
                 // spir-v doesn't support zero-sized arrays
                 create_zst(cx, span, ty)
             } else {
-                let count_const = cx.constant_u32(span, count as u32);
+                let count_const = cx.constant_bit32(span, count as u32);
                 let element_spv = cx.lookup_type(element_type);
                 let stride_spv = element_spv
                     .sizeof(cx)
@@ -930,13 +930,35 @@ fn trans_intrinsic_type<'tcx>(
             // let image_format: spirv::ImageFormat =
             //     type_from_variant_discriminant(cx, args.const_at(6));
 
-            fn const_int_value<'tcx, P: FromPrimitive>(
+            trait FromU128Const: Sized {
+                fn from_u128_const(n: u128) -> Option<Self>;
+            }
+
+            impl FromU128Const for u32 {
+                fn from_u128_const(n: u128) -> Option<Self> {
+                    u32::from_u128(n)
+                }
+            }
+
+            impl FromU128Const for Dim {
+                fn from_u128_const(n: u128) -> Option<Self> {
+                    Dim::from_u32(u32::from_u128(n)?)
+                }
+            }
+
+            impl FromU128Const for ImageFormat {
+                fn from_u128_const(n: u128) -> Option<Self> {
+                    ImageFormat::from_u32(u32::from_u128(n)?)
+                }
+            }
+
+            fn const_int_value<'tcx, P: FromU128Const>(
                 cx: &CodegenCx<'tcx>,
                 const_: Const<'tcx>,
             ) -> Result<P, ErrorGuaranteed> {
                 assert!(const_.ty().is_integral());
                 let value = const_.eval_bits(cx.tcx, ParamEnv::reveal_all());
-                match P::from_u128(value) {
+                match P::from_u128_const(value) {
                     Some(v) => Ok(v),
                     None => Err(cx
                         .tcx
@@ -1007,10 +1029,26 @@ fn trans_intrinsic_type<'tcx>(
             // We use a generic param to indicate the underlying element type.
             // The SPIR-V element type will be generated from the first generic param.
             if let Some(elem_ty) = args.types().next() {
-                Ok(SpirvType::RuntimeArray {
-                    element: cx.layout_of(elem_ty).spirv_type(span, cx),
+                let layout = cx.layout_of(elem_ty);
+                let element = layout.spirv_type(span, cx);
+                let element_ty = cx.lookup_type(element);
+
+                if element_ty.is_uniform_constant() {
+                    // array of image, sampler, SampledImage etc. descriptors
+                    Ok(SpirvType::RuntimeArray {
+                        element
+                    }
+                    .def(span, cx))
+                } else {
+                    // array of buffer descriptors
+                    Ok(SpirvType::RuntimeArray {
+                        element: SpirvType::InterfaceBlock {
+                            inner_type: element,
+                        }
+                        .def(span, cx),
+                    }
+                    .def(span, cx))
                 }
-                .def(span, cx))
             } else {
                 Err(cx
                     .tcx

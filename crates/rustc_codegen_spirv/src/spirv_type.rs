@@ -162,7 +162,7 @@ impl SpirvType<'_> {
                         result,
                         index as u32,
                         Decoration::Offset,
-                        [Operand::LiteralInt32(offset.bytes() as u32)]
+                        [Operand::LiteralBit32(offset.bytes() as u32)]
                             .iter()
                             .cloned(),
                     );
@@ -188,24 +188,30 @@ impl SpirvType<'_> {
                 emit.decorate(
                     result,
                     Decoration::ArrayStride,
-                    iter::once(Operand::LiteralInt32(element_size as u32)),
+                    iter::once(Operand::LiteralBit32(element_size as u32)),
                 );
                 result
             }
             Self::RuntimeArray { element } => {
                 let mut emit = cx.emit_global();
                 let result = emit.type_runtime_array_id(id, element);
-                // ArrayStride decoration wants in *bytes*
-                let element_size = cx
-                    .lookup_type(element)
-                    .sizeof(cx)
-                    .expect("Element of sized array must be sized")
-                    .bytes();
-                emit.decorate(
-                    result,
-                    Decoration::ArrayStride,
-                    iter::once(Operand::LiteralInt32(element_size as u32)),
-                );
+
+                // from the SPIR-V spec:
+                // Each array type must have an ArrayStride decoration, unless it is an array that contains a structure
+                // decorated with Block or BufferBlock, in which case it must not have an ArrayStride decoration
+                if !matches!(cx.lookup_type(element), SpirvType::InterfaceBlock { .. }) {
+                    // ArrayStride decoration wants in *bytes*
+                    let element_size = cx
+                        .lookup_type(element)
+                        .sizeof(cx)
+                        .expect("Element of sized array must be sized")
+                        .bytes();
+                    emit.decorate(
+                        result,
+                        Decoration::ArrayStride,
+                        iter::once(Operand::LiteralBit32(element_size as u32)),
+                    );
+                }
                 result
             }
             Self::Pointer { pointee } => {
@@ -264,7 +270,7 @@ impl SpirvType<'_> {
                     result,
                     0,
                     Decoration::Offset,
-                    [Operand::LiteralInt32(0)].iter().cloned(),
+                    [Operand::LiteralBit32(0)].iter().cloned(),
                 );
                 result
             }
@@ -374,6 +380,16 @@ impl SpirvType<'_> {
             | Self::SampledImage { .. }
             | Self::InterfaceBlock { .. } => Align::from_bytes(4).unwrap(),
         }
+    }
+
+    pub fn is_uniform_constant(&self) -> bool {
+        matches!(
+            self,
+            SpirvType::Image { .. }
+                | SpirvType::Sampler
+                | SpirvType::SampledImage { .. }
+                | SpirvType::AccelerationStructureKhr { .. }
+        )
     }
 
     /// Replace `&[T]` fields with `&'tcx [T]` ones produced by calling

@@ -92,6 +92,7 @@ pub enum SpirvAttribute {
     DescriptorSet(u32),
     Binding(u32),
     Flat,
+    PerPrimitiveExt,
     Invariant,
     InputAttachmentIndex(u32),
     SpecConstant(SpecConstant),
@@ -99,6 +100,7 @@ pub enum SpirvAttribute {
     // `fn`/closure attributes:
     BufferLoadIntrinsic,
     BufferStoreIntrinsic,
+    RuntimeArrayIndexIntrinsic,
 }
 
 // HACK(eddyb) this is similar to `rustc_span::Spanned` but with `value` as the
@@ -128,12 +130,14 @@ pub struct AggregatedSpirvAttributes {
     pub binding: Option<Spanned<u32>>,
     pub flat: Option<Spanned<()>>,
     pub invariant: Option<Spanned<()>>,
+    pub per_primitive_ext: Option<Spanned<()>>,
     pub input_attachment_index: Option<Spanned<u32>>,
     pub spec_constant: Option<Spanned<SpecConstant>>,
 
     // `fn`/closure attributes:
     pub buffer_load_intrinsic: Option<Spanned<()>>,
     pub buffer_store_intrinsic: Option<Spanned<()>>,
+    pub runtime_array_index_intrinsic: Option<Spanned<()>>,
 }
 
 struct MultipleAttrs {
@@ -214,6 +218,12 @@ impl AggregatedSpirvAttributes {
             Binding(value) => try_insert(&mut self.binding, value, span, "#[spirv(binding)]"),
             Flat => try_insert(&mut self.flat, (), span, "#[spirv(flat)]"),
             Invariant => try_insert(&mut self.invariant, (), span, "#[spirv(invariant)]"),
+            PerPrimitiveExt => try_insert(
+                &mut self.per_primitive_ext,
+                (),
+                span,
+                "#[spirv(per_primitive_ext)]",
+            ),
             InputAttachmentIndex(value) => try_insert(
                 &mut self.input_attachment_index,
                 value,
@@ -237,6 +247,12 @@ impl AggregatedSpirvAttributes {
                 (),
                 span,
                 "#[spirv(buffer_store_intrinsic)]",
+            ),
+            RuntimeArrayIndexIntrinsic => try_insert(
+                &mut self.runtime_array_index_intrinsic,
+                (),
+                span,
+                "#[spirv(runtime_array_index_intrinsic)]",
             ),
         }
     }
@@ -315,6 +331,7 @@ impl CheckSpirvAttrVisitor<'_> {
                 | SpirvAttribute::Binding(_)
                 | SpirvAttribute::Flat
                 | SpirvAttribute::Invariant
+                | SpirvAttribute::PerPrimitiveExt
                 | SpirvAttribute::InputAttachmentIndex(_)
                 | SpirvAttribute::SpecConstant(_) => match target {
                     Target::Param => {
@@ -359,12 +376,12 @@ impl CheckSpirvAttrVisitor<'_> {
 
                     _ => Err(Expected("function parameter")),
                 },
-                SpirvAttribute::BufferLoadIntrinsic | SpirvAttribute::BufferStoreIntrinsic => {
-                    match target {
-                        Target::Fn => Ok(()),
-                        _ => Err(Expected("function")),
-                    }
-                }
+                SpirvAttribute::BufferLoadIntrinsic
+                | SpirvAttribute::BufferStoreIntrinsic
+                | SpirvAttribute::RuntimeArrayIndexIntrinsic => match target {
+                    Target::Fn => Ok(()),
+                    _ => Err(Expected("function")),
+                },
             };
             match valid_target {
                 Err(Expected(expected_target)) => {
