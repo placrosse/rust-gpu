@@ -2595,9 +2595,11 @@ impl<'a, 'tcx> BuilderMethods<'a, 'tcx> for Builder<'a, 'tcx> {
                 };
                 let const_slice_as_elem_ids = |slice_ptr_and_len_ids: &[Word]| {
                     if let [ptr_id, len_id] = slice_ptr_and_len_ids[..] {
-                        if let SpirvConst::PtrTo { pointee } =
-                            self.builder.lookup_const_by_id(ptr_id)?
-                        {
+                        let mut ptr = self.builder.lookup_const_by_id(ptr_id)?;
+                        while let SpirvConst::BitCast(ptr_id) = ptr {
+                            ptr = self.builder.lookup_const_by_id(ptr_id)?;
+                        }
+                        if let SpirvConst::PtrTo { pointee } = ptr {
                             if let SpirvConst::Composite(elems) =
                                 self.builder.lookup_const_by_id(pointee)?
                             {

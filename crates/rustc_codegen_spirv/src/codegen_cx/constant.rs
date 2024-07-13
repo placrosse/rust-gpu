@@ -1,6 +1,6 @@
 use super::CodegenCx;
 use crate::abi::ConvSpirvType;
-use crate::builder_spirv::{SpirvConst, SpirvValue, SpirvValueExt, SpirvValueKind};
+use crate::builder_spirv::{SpirvConst, SpirvValue, SpirvValueKind};
 use crate::spirv_type::SpirvType;
 use rspirv::spirv::Word;
 use rustc_codegen_ssa::traits::{ConstMethods, MiscMethods, StaticMethods};
@@ -279,12 +279,8 @@ impl<'tcx> ConstMethods<'tcx> for CodegenCx<'tcx> {
                         if data == 0 {
                             self.constant_null(ty)
                         } else {
-                            let result = self.undef(ty);
-                            self.zombie_no_span(
-                                result.def_cx(self),
-                                "pointer has non-null integer address",
-                            );
-                            result
+                            let addr = self.const_u32(data.try_into().unwrap());
+                            self.const_bitcast(addr, ty)
                         }
                     }
                 }
@@ -381,9 +377,7 @@ impl<'tcx> ConstMethods<'tcx> for CodegenCx<'tcx> {
         if val.ty == ty {
             val
         } else {
-            // FIXME(eddyb) implement via `OpSpecConstantOp`.
-            // FIXME(eddyb) this zombies the original value without creating a new one.
-            let result = val.def_cx(self).with_type(ty);
+            let result = self.def_constant(ty, SpirvConst::BitCast(val.def_cx(self)));
             self.zombie_no_span(result.def_cx(self), "const_bitcast");
             result
         }
