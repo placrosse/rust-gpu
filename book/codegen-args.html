@@ -1,5 +1,5 @@
 <!DOCTYPE HTML>
-<html lang="en" class="light" dir="ltr">
+<html lang="en" class="light sidebar-visible" dir="ltr">
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
@@ -7,7 +7,7 @@
 
 
         <!-- Custom HTML head -->
-        
+
         <meta name="description" content="">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
@@ -24,26 +24,41 @@
         <link rel="stylesheet" href="fonts/fonts.css">
 
         <!-- Highlight.js Stylesheets -->
-        <link rel="stylesheet" href="highlight.css">
-        <link rel="stylesheet" href="tomorrow-night.css">
-        <link rel="stylesheet" href="ayu-highlight.css">
+        <link rel="stylesheet" id="highlight-css" href="highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="ayu-highlight.css">
 
         <!-- Custom theme stylesheets -->
 
-    </head>
-    <body class="sidebar-visible no-js">
-    <div id="body-container">
-        <!-- Provide site root to javascript -->
-        <script>
-            var path_to_root = "";
-            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
-        </script>
 
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
         <!-- Work around some values being stored in localStorage wrapped in quotes -->
         <script>
             try {
-                var theme = localStorage.getItem('mdbook-theme');
-                var sidebar = localStorage.getItem('mdbook-sidebar');
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
 
                 if (theme.startsWith('"') && theme.endsWith('"')) {
                     localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
@@ -57,70 +72,51 @@
 
         <!-- Set the theme before any content is loaded, prevents flash -->
         <script>
-            var theme;
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
             try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
             if (theme === null || theme === undefined) { theme = default_theme; }
-            var html = document.querySelector('html');
+            const html = document.documentElement;
             html.classList.remove('light')
             html.classList.add(theme);
-            var body = document.querySelector('body');
-            body.classList.remove('no-js')
-            body.classList.add('js');
+            html.classList.add("js");
         </script>
 
         <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
 
         <!-- Hide / unhide sidebar before it is displayed -->
         <script>
-            var body = document.querySelector('body');
-            var sidebar = null;
-            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
             if (document.body.clientWidth >= 1080) {
                 try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
                 sidebar = sidebar || 'visible';
             } else {
                 sidebar = 'hidden';
+                sidebar_toggle.checked = false;
             }
-            sidebar_toggle.checked = sidebar === 'visible';
-            body.classList.remove('sidebar-visible');
-            body.classList.add("sidebar-" + sidebar);
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
         </script>
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
-            <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="introduction.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><div><strong aria-hidden="true">2.</strong> Contributing to Rust-GPU</div></li><li><ol class="section"><li class="chapter-item expanded "><a href="building-rust-gpu.html"><strong aria-hidden="true">2.1.</strong> Building</a></li><li class="chapter-item expanded "><a href="testing.html"><strong aria-hidden="true">2.2.</strong> Testing</a></li><li class="chapter-item expanded "><a href="codegen-args.html" class="active"><strong aria-hidden="true">2.3.</strong> "Codegen args" (flags/options) supported by the Rust-GPU codegen backend</a></li><li class="chapter-item expanded "><a href="spirv-minimization.html"><strong aria-hidden="true">2.4.</strong> Minimizing bugs in SPIR-V</a></li><li class="chapter-item expanded "><a href="publishing-rust-gpu.html"><strong aria-hidden="true">2.5.</strong> Publishing Rust-GPU on crates.io</a></li></ol></li><li class="chapter-item expanded "><a href="platform-support.html"><strong aria-hidden="true">3.</strong> Platform Support</a></li><li class="chapter-item expanded "><a href="writing-shader-crates.html"><strong aria-hidden="true">4.</strong> Writing Shader Crates</a></li><li class="chapter-item expanded "><div><strong aria-hidden="true">5.</strong> Features</div></li><li><ol class="section"><li class="chapter-item expanded "><a href="attributes.html"><strong aria-hidden="true">5.1.</strong> Attribute syntax</a></li><li class="chapter-item expanded "><a href="inline-asm.html"><strong aria-hidden="true">5.2.</strong> Inline Assembly</a></li><li class="chapter-item expanded "><a href="image.html"><strong aria-hidden="true">5.3.</strong> Image type syntax</a></li></ol></li></ol>
-            </div>
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
             </div>
         </nav>
 
-        <!-- Track and set sidebar scroll position -->
-        <script>
-            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
-            sidebarScrollbox.addEventListener('click', function(e) {
-                if (e.target.tagName === 'A') {
-                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
-                }
-            }, { passive: true });
-            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
-            sessionStorage.removeItem('sidebar-scroll');
-            if (sidebarScrollTop) {
-                // preserve sidebar scroll position when navigating via links within sidebar
-                sidebarScrollbox.scrollTop = sidebarScrollTop;
-            } else {
-                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
-                var activeSection = document.querySelector('#sidebar .active');
-                if (activeSection) {
-                    activeSection.scrollIntoView({ block: 'center' });
-                }
-            }
-        </script>
-
         <div id="page-wrapper" class="page-wrapper">
 
             <div class="page">
-                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar-hover-placeholder"></div>
                 <div id="menu-bar" class="menu-bar sticky">
                     <div class="left-buttons">
                         <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
@@ -130,13 +126,14 @@
                             <i class="fa fa-paint-brush"></i>
                         </button>
                         <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
                         </ul>
-                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
                             <i class="fa fa-search"></i>
                         </button>
                     </div>
@@ -153,7 +150,12 @@
 
                 <div id="search-wrapper" class="hidden">
                     <form id="searchbar-outer" class="searchbar-outer">
-                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
                     </form>
                     <div id="searchresults-outer" class="searchresults-outer hidden">
                         <div id="searchresults-header" class="searchresults-header"></div>
@@ -222,34 +224,24 @@ for codegen, if the linker panics, this option does nothing, sadly.</p>
 (including, well, linking the methods - <code>LinkageAttributes</code> will still exist, etc.). This is very
 similar to <code>--dump-pre-link</code>, except it outputs only a single file, which might make grepping through
 for stuff easier.</p>
+<h3 id="--dump-pre-inline-dir"><a class="header" href="#--dump-pre-inline-dir"><code>--dump-pre-inline DIR</code></a></h3>
+<p>Dumps the module, to a file in <code>DIR</code>, immediately before the inliner pass runs.</p>
+<h3 id="--dump-post-inline-dir"><a class="header" href="#--dump-post-inline-dir"><code>--dump-post-inline DIR</code></a></h3>
+<p>Dumps the module, to a file in <code>DIR</code>, immediately after the inliner pass runs.</p>
 <h3 id="--dump-post-split-dir"><a class="header" href="#--dump-post-split-dir"><code>--dump-post-split DIR</code></a></h3>
-<p>Dumps the modules, to files in <code>DIR</code>, immediately after multimodule splitting, but before final cleanup passes (e.g.
-DCE to remove the other entry points).</p>
+<p>Dumps the modules, to files in <code>DIR</code>, immediately after multimodule splitting.</p>
 <h3 id="--dump-post-link-dir"><a class="header" href="#--dump-post-link-dir"><code>--dump-post-link DIR</code></a></h3>
 <p>Takes: path to directory</p>
 <p>Dumps all output modules from the linker, to files in <code>DIR</code>. This may be multiple files due to the multimodule/module
 splitting option, hence it takes a directory instead of a file path. This is the final output
 binary before <code>spirv-opt</code> is executed, so it may be useful to output this to check if an issue is in
 Rust-GPU, or in <code>spirv-opt</code>.</p>
-<h3 id="--specializer-debug"><a class="header" href="#--specializer-debug"><code>--specializer-debug</code></a></h3>
-<p>Enables debug logging for the specializer.</p>
-<p><em><strong>FIXME(@eddyb)</strong> use <code>log</code>/<code>tracing</code> instead for this purpose</em></p>
 <h3 id="--specializer-dump-instances-file"><a class="header" href="#--specializer-dump-instances-file"><code>--specializer-dump-instances FILE</code></a></h3>
 <p>Dumps to <code>FILE</code> all instances inferred by the specializer.</p>
-<h3 id="--print-zombie"><a class="header" href="#--print-zombie"><code>--print-zombie</code></a></h3>
-<p>Prints to rustc stdout which functions were removed due to being zombies, and why.</p>
-<p><em><strong>FIXME(@eddyb)</strong> use <code>log</code>/<code>tracing</code> instead for this purpose</em></p>
-<h3 id="--print-all-zombie"><a class="header" href="#--print-all-zombie"><code>--print-all-zombie</code></a></h3>
-<p>Prints to rustc stdout <em>everything</em> that was removed due to being zombies, why, and if it was an
-original zombie or if it was infected. (prints a lot!)</p>
-<p><em><strong>FIXME(@eddyb)</strong> use <code>log</code>/<code>tracing</code> instead for this purpose</em></p>
 <h3 id="--no-spirv-val"><a class="header" href="#--no-spirv-val"><code>--no-spirv-val</code></a></h3>
 <p>Disables running <code>spirv-val</code> on the final output. Spooky scary option, can cause invalid modules!</p>
 <h3 id="--no-spirv-opt"><a class="header" href="#--no-spirv-opt"><code>--no-spirv-opt</code></a></h3>
 <p>Forcibly disables running <code>spirv-opt</code> on the final output, even if optimizations are enabled.</p>
-<h3 id="--no-dce"><a class="header" href="#--no-dce"><code>--no-dce</code></a></h3>
-<p>Disables running dead code elimination. Can and probably will generate invalid modules or crash the
-linker, hasn't been tested for a while.</p>
 <h3 id="--no-compact-ids"><a class="header" href="#--no-compact-ids"><code>--no-compact-ids</code></a></h3>
 <p>Disables compaction of SPIR-V IDs at the end of linking. Causes absolutely ginormous IDs to be
 emitted. Useful if you're println debugging IDs in the linker (although spirv-opt will compact them
@@ -304,16 +296,21 @@ if you want to see all instructions exactly as e.g. <code>--spirt-passes</code> 
 all the "file contents debuginfo" (i.e. from SPIR-V <code>OpSource</code> instructions),
 which will end up being included, in full, at the start of the dump.</p>
 <p>The default (of hiding the file contents) is less verbose, but (arguably) lossier.</p>
+<h3 id="--spirt-keep-unstructured-cfg-in-dumps"><a class="header" href="#--spirt-keep-unstructured-cfg-in-dumps"><code>--spirt-keep-unstructured-cfg-in-dumps</code></a></h3>
+<p>When dumping (pretty-printed) <code>SPIR-🇹</code> (e.g. with <code>--dump-spirt-passes</code>), include
+the initial unstructured state, as well (i.e. just after lowering from SPIR-V).</p>
+<p>The default (of only dumping structured SPIR-T) can have far less noisy dataflow,
+but unstructured SPIR-T may be needed for e.g. debugging the structurizer itself.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="testing.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="spirv-minimization.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="spirv-minimization.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="publishing-rust-gpu.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -323,11 +320,11 @@ which will end up being included, in full, at the start of the dump.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="testing.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="spirv-minimization.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="spirv-minimization.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="publishing-rust-gpu.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>
@@ -351,6 +348,7 @@ which will end up being included, in full, at the start of the dump.</p>
         <script src="book.js"></script>
 
         <!-- Custom JS scripts -->
+
 
 
     </div>

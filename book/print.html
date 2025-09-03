@@ -1,5 +1,5 @@
 <!DOCTYPE HTML>
-<html lang="en" class="light" dir="ltr">
+<html lang="en" class="light sidebar-visible" dir="ltr">
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
@@ -8,7 +8,7 @@
 
 
         <!-- Custom HTML head -->
-        
+
         <meta name="description" content="">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
@@ -25,26 +25,41 @@
         <link rel="stylesheet" href="fonts/fonts.css">
 
         <!-- Highlight.js Stylesheets -->
-        <link rel="stylesheet" href="highlight.css">
-        <link rel="stylesheet" href="tomorrow-night.css">
-        <link rel="stylesheet" href="ayu-highlight.css">
+        <link rel="stylesheet" id="highlight-css" href="highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="ayu-highlight.css">
 
         <!-- Custom theme stylesheets -->
 
-    </head>
-    <body class="sidebar-visible no-js">
-    <div id="body-container">
-        <!-- Provide site root to javascript -->
-        <script>
-            var path_to_root = "";
-            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
-        </script>
 
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
         <!-- Work around some values being stored in localStorage wrapped in quotes -->
         <script>
             try {
-                var theme = localStorage.getItem('mdbook-theme');
-                var sidebar = localStorage.getItem('mdbook-sidebar');
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
 
                 if (theme.startsWith('"') && theme.endsWith('"')) {
                     localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
@@ -58,70 +73,51 @@
 
         <!-- Set the theme before any content is loaded, prevents flash -->
         <script>
-            var theme;
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
             try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
             if (theme === null || theme === undefined) { theme = default_theme; }
-            var html = document.querySelector('html');
+            const html = document.documentElement;
             html.classList.remove('light')
             html.classList.add(theme);
-            var body = document.querySelector('body');
-            body.classList.remove('no-js')
-            body.classList.add('js');
+            html.classList.add("js");
         </script>
 
         <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
 
         <!-- Hide / unhide sidebar before it is displayed -->
         <script>
-            var body = document.querySelector('body');
-            var sidebar = null;
-            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
             if (document.body.clientWidth >= 1080) {
                 try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
                 sidebar = sidebar || 'visible';
             } else {
                 sidebar = 'hidden';
+                sidebar_toggle.checked = false;
             }
-            sidebar_toggle.checked = sidebar === 'visible';
-            body.classList.remove('sidebar-visible');
-            body.classList.add("sidebar-" + sidebar);
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
         </script>
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
-            <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="introduction.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><div><strong aria-hidden="true">2.</strong> Contributing to Rust-GPU</div></li><li><ol class="section"><li class="chapter-item expanded "><a href="building-rust-gpu.html"><strong aria-hidden="true">2.1.</strong> Building</a></li><li class="chapter-item expanded "><a href="testing.html"><strong aria-hidden="true">2.2.</strong> Testing</a></li><li class="chapter-item expanded "><a href="codegen-args.html"><strong aria-hidden="true">2.3.</strong> "Codegen args" (flags/options) supported by the Rust-GPU codegen backend</a></li><li class="chapter-item expanded "><a href="spirv-minimization.html"><strong aria-hidden="true">2.4.</strong> Minimizing bugs in SPIR-V</a></li><li class="chapter-item expanded "><a href="publishing-rust-gpu.html"><strong aria-hidden="true">2.5.</strong> Publishing Rust-GPU on crates.io</a></li></ol></li><li class="chapter-item expanded "><a href="platform-support.html"><strong aria-hidden="true">3.</strong> Platform Support</a></li><li class="chapter-item expanded "><a href="writing-shader-crates.html"><strong aria-hidden="true">4.</strong> Writing Shader Crates</a></li><li class="chapter-item expanded "><div><strong aria-hidden="true">5.</strong> Features</div></li><li><ol class="section"><li class="chapter-item expanded "><a href="attributes.html"><strong aria-hidden="true">5.1.</strong> Attribute syntax</a></li><li class="chapter-item expanded "><a href="inline-asm.html"><strong aria-hidden="true">5.2.</strong> Inline Assembly</a></li><li class="chapter-item expanded "><a href="image.html"><strong aria-hidden="true">5.3.</strong> Image type syntax</a></li></ol></li></ol>
-            </div>
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
             </div>
         </nav>
 
-        <!-- Track and set sidebar scroll position -->
-        <script>
-            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
-            sidebarScrollbox.addEventListener('click', function(e) {
-                if (e.target.tagName === 'A') {
-                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
-                }
-            }, { passive: true });
-            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
-            sessionStorage.removeItem('sidebar-scroll');
-            if (sidebarScrollTop) {
-                // preserve sidebar scroll position when navigating via links within sidebar
-                sidebarScrollbox.scrollTop = sidebarScrollTop;
-            } else {
-                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
-                var activeSection = document.querySelector('#sidebar .active');
-                if (activeSection) {
-                    activeSection.scrollIntoView({ block: 'center' });
-                }
-            }
-        </script>
-
         <div id="page-wrapper" class="page-wrapper">
 
             <div class="page">
-                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar-hover-placeholder"></div>
                 <div id="menu-bar" class="menu-bar sticky">
                     <div class="left-buttons">
                         <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
@@ -131,13 +127,14 @@
                             <i class="fa fa-paint-brush"></i>
                         </button>
                         <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
                         </ul>
-                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
                             <i class="fa fa-search"></i>
                         </button>
                     </div>
@@ -154,7 +151,12 @@
 
                 <div id="search-wrapper" class="hidden">
                     <form id="searchbar-outer" class="searchbar-outer">
-                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
                     </form>
                     <div id="searchresults-outer" class="searchresults-outer hidden">
                         <div id="searchresults-header" class="searchresults-header"></div>
@@ -216,11 +218,14 @@ called (fedora) <code>libX11-devel</code>, <code>libxkbcommon-x11-devel</code>, 
 <p>You should see <code>warning: use-installed-tools feature on, skipping compilation of C++ code</code> during the compilation, but otherwise the build will function just the same as if you compiled the C++ code, with the exception that it will fail if you don't have SPIRV-Tools installed correctly.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="testing-rust-gpu"><a class="header" href="#testing-rust-gpu">Testing Rust-GPU</a></h1>
 <p>Rust-GPU has a couple of different kinds of tests, most can be ran through
-<code>cargo test</code>, however Rust-GPU also has end-to-end tests for compiling Rust and
-validating its SPIR-V output, which can ran by running <code>cargo compiletest</code>.</p>
-<pre><code class="language-bash">cargo test &amp;&amp; cargo compiletest
+<code>cargo test</code>. Rust-GPU also has end-to-end tests for compiling Rust and
+validating its SPIR-V output, which can ran by running <code>cargo compiletest</code>. Finally,
+Rust-GPU has differential tests, which runs Rust and WGSL shaders and
+makes sure they have the same output. These can be run with <code>cargo difftest</code>.</p>
+<pre><code class="language-bash">cargo test &amp;&amp; cargo compiletest &amp;&amp; cargo difftest
 </code></pre>
-<h2 id="adding-tests"><a class="header" href="#adding-tests">Adding Tests</a></h2>
+<h2 id="compile-tests"><a class="header" href="#compile-tests">Compile Tests</a></h2>
+<h3 id="adding-tests"><a class="header" href="#adding-tests">Adding Tests</a></h3>
 <p>Rust-GPU's end-to-end test's use an external version of the <a href="https://github.com/laumann/compiletest-rs"><code>compiletest</code></a> tool
 as a testing framework. Be sure to check out the <a href="https://github.com/laumann/compiletest-rs">repository</a> and
 the <a href="https://rustc-dev-guide.rust-lang.org/tests/intro.html">rustc Dev-Guide</a> for more information about how it works,
@@ -247,137 +252,23 @@ everything else. You can also add <code>--bless</code> to update expected output
 # You can also provide multiple values to test multiple environments
 cargo compiletest --target-env=vulkan1.1,spv.1.3
 </code></pre>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="codegen-args-flagsoptions-supported-by-the-rust-gpu-codegen-backend"><a class="header" href="#codegen-args-flagsoptions-supported-by-the-rust-gpu-codegen-backend">"Codegen args" (flags/options) supported by the Rust-GPU codegen backend</a></h1>
-<p>Please keep in mind that many of these flags/options are for internal development, and may break output
-unexpectedly and generally muck things up. Please only use these if you know what you're doing.</p>
-<p>Help is also appreciated keeping this document up to date, "codegen args" flags/options may be
-added/removed on an ad-hoc basis without much thought, as they're internal development tools, not a
-public API - this documentation is only here because these flags/options may be helpful diagnosing
-problems for others.</p>
-<p>It's recommended that "codegen args" options that take paths to files or directories are set to full
-paths, as the working directory of the compiler might be something wonky and unexpected, and it's
-easier to set the full path.</p>
-<hr />
-<h2 id="how-to-set-codegen-args-flagsoptions"><a class="header" href="#how-to-set-codegen-args-flagsoptions">How to set "codegen args" flags/options</a></h2>
-<p>The most convenient method is relying on <code>spirv-builder</code> reading the <code>RUSTGPU_CODEGEN_ARGS</code> environment variable, e.g.:</p>
-<pre><code class="language-console">$ RUSTGPU_CODEGEN_ARGS="--no-spirv-val --dump-post-link=$PWD/postlink" cargo run -p example-runner-wgpu
-...
-    Finished release [optimized] target(s) in 15.15s
-
-$ file postlink/*
-postlink/module: Khronos SPIR-V binary, little-endian, version 0x010300, generator 0x1b0000
-</code></pre>
-<p>Notably, <code>RUSTGPU_CODEGEN_ARGS="--help"</code> can be used to see a "usage" message (which lists all the flags/options, including ones not listed in this document), via e.g. running a Cargo build that relies on <code>spirv-builder</code>.</p>
-<p>However, it's only a convenient alias for for <code>RUSTGPU_RUSTFLAGS=-Cllvm-args="..."</code> (without having to expose the fact that LLVM's name is still attached to <code>rustc</code>'s interface for this functionality), and if in direct control of <code>rustc</code>, you can still pass such "codegen args" flags/options wrapped in <code>-C llvm-args="..."</code>.</p>
-<hr />
-<h2 id="historical-note-about-past-environment-variables"><a class="header" href="#historical-note-about-past-environment-variables">Historical note about past "environment variables"</a></h2>
-<p>Many of these flags/options were at one point, individual environment variable (e.g. the <code>--dump-pre-link</code> option used to be the environment variable <code>DUMP_PRE_LINK</code>).</p>
-<p>However, that approach is prone to various failure modes, because the environment variables would not get registered as a "dependency" (without extra work that never happened), and the idea of "codegen args" fits better with existing practices (e.g. <code>rustc -C llvm-args="..."</code> for the LLVM codegen backend of <code>rustc</code>).</p>
-<p>For more context see also <a href="https://github.com/EmbarkStudios/rust-gpu/pull/959">PR #959</a>, which made the transition to this system.</p>
-<h2 id="where-are-all-the-rest-of-the-flagsoptions-documented"><a class="header" href="#where-are-all-the-rest-of-the-flagsoptions-documented">Where are all the rest of the flags/options documented?</a></h2>
-<p>If you do run a build with <code>RUSTGPU_CODEGEN_ARGS="--help"</code> (or <code>-C llvm-args="--help"</code>), you will notice more flags/options than are listed in this documented.</p>
-<p>This is a historical artifact: as mentioned above, these used to be environment variables, and this document only described those, without talking about the older "codegen args" at all.</p>
-<p>While most of those flags are usually only exposed through higher-level <code>spirv-builder</code> APIs, it would be nice to have all of them documented in one place (eventually?).</p>
-<hr />
-<h2 id="debugging-codegen-args-flagsoptions"><a class="header" href="#debugging-codegen-args-flagsoptions">Debugging "codegen args" flags/options</a></h2>
-<p>As mentioned above, these form the bulk of "codegen args", but keep in mind the list is not exhaustive and you will want to check the full list with e.g. <code>RUSTGPU_CODEGEN_ARGS="--help"</code>.</p>
-<h3 id="--dump-mir-dir"><a class="header" href="#--dump-mir-dir"><code>--dump-mir DIR</code></a></h3>
-<p>Dumps the MIR of every function rust-gpu encounters, to files in <code>DIR</code>. Yes, rustc does have options to do
-this by default, but I always forget the syntax, and plumbing through the option to <code>spirv-builder</code>
-is annoying, so this is handy to just hack an output.</p>
-<p><em><strong>FIXME(@eddyb)</strong> this may be irrelevant now given <code>RUSTGPU_RUSTFLAGS</code></em></p>
-<h3 id="--dump-module-on-panic-file"><a class="header" href="#--dump-module-on-panic-file"><code>--dump-module-on-panic FILE</code></a></h3>
-<p>If codegen panics, then write the (partially) emitted module to <code>FILE</code>. Note that this only exists
-for codegen, if the linker panics, this option does nothing, sadly.</p>
-<h3 id="--dump-pre-link-dir"><a class="header" href="#--dump-pre-link-dir"><code>--dump-pre-link DIR</code></a></h3>
-<p>Dumps all input modules to the linker, to files in <code>DIR</code>, before the linker touches them at all.</p>
-<h3 id="--dump-post-merge-dir"><a class="header" href="#--dump-post-merge-dir"><code>--dump-post-merge DIR</code></a></h3>
-<p>Dumps the merged module, to a file in <code>DIR</code>, immediately after merging, but before the linker has done anything else
-(including, well, linking the methods - <code>LinkageAttributes</code> will still exist, etc.). This is very
-similar to <code>--dump-pre-link</code>, except it outputs only a single file, which might make grepping through
-for stuff easier.</p>
-<h3 id="--dump-post-split-dir"><a class="header" href="#--dump-post-split-dir"><code>--dump-post-split DIR</code></a></h3>
-<p>Dumps the modules, to files in <code>DIR</code>, immediately after multimodule splitting, but before final cleanup passes (e.g.
-DCE to remove the other entry points).</p>
-<h3 id="--dump-post-link-dir"><a class="header" href="#--dump-post-link-dir"><code>--dump-post-link DIR</code></a></h3>
-<p>Takes: path to directory</p>
-<p>Dumps all output modules from the linker, to files in <code>DIR</code>. This may be multiple files due to the multimodule/module
-splitting option, hence it takes a directory instead of a file path. This is the final output
-binary before <code>spirv-opt</code> is executed, so it may be useful to output this to check if an issue is in
-Rust-GPU, or in <code>spirv-opt</code>.</p>
-<h3 id="--specializer-debug"><a class="header" href="#--specializer-debug"><code>--specializer-debug</code></a></h3>
-<p>Enables debug logging for the specializer.</p>
-<p><em><strong>FIXME(@eddyb)</strong> use <code>log</code>/<code>tracing</code> instead for this purpose</em></p>
-<h3 id="--specializer-dump-instances-file"><a class="header" href="#--specializer-dump-instances-file"><code>--specializer-dump-instances FILE</code></a></h3>
-<p>Dumps to <code>FILE</code> all instances inferred by the specializer.</p>
-<h3 id="--print-zombie"><a class="header" href="#--print-zombie"><code>--print-zombie</code></a></h3>
-<p>Prints to rustc stdout which functions were removed due to being zombies, and why.</p>
-<p><em><strong>FIXME(@eddyb)</strong> use <code>log</code>/<code>tracing</code> instead for this purpose</em></p>
-<h3 id="--print-all-zombie"><a class="header" href="#--print-all-zombie"><code>--print-all-zombie</code></a></h3>
-<p>Prints to rustc stdout <em>everything</em> that was removed due to being zombies, why, and if it was an
-original zombie or if it was infected. (prints a lot!)</p>
-<p><em><strong>FIXME(@eddyb)</strong> use <code>log</code>/<code>tracing</code> instead for this purpose</em></p>
-<h3 id="--no-spirv-val"><a class="header" href="#--no-spirv-val"><code>--no-spirv-val</code></a></h3>
-<p>Disables running <code>spirv-val</code> on the final output. Spooky scary option, can cause invalid modules!</p>
-<h3 id="--no-spirv-opt"><a class="header" href="#--no-spirv-opt"><code>--no-spirv-opt</code></a></h3>
-<p>Forcibly disables running <code>spirv-opt</code> on the final output, even if optimizations are enabled.</p>
-<h3 id="--no-dce"><a class="header" href="#--no-dce"><code>--no-dce</code></a></h3>
-<p>Disables running dead code elimination. Can and probably will generate invalid modules or crash the
-linker, hasn't been tested for a while.</p>
-<h3 id="--no-compact-ids"><a class="header" href="#--no-compact-ids"><code>--no-compact-ids</code></a></h3>
-<p>Disables compaction of SPIR-V IDs at the end of linking. Causes absolutely ginormous IDs to be
-emitted. Useful if you're println debugging IDs in the linker (although spirv-opt will compact them
-anyway, be careful).</p>
-<h3 id="--no-early-report-zombies"><a class="header" href="#--no-early-report-zombies"><code>--no-early-report-zombies</code></a></h3>
-<p>Delays reporting zombies (aka "deferred errors") even further, to allow more legalization.
-Currently this also replaces the zombie reporting with a SPIR-T-based version
-(which may become the default in the future).</p>
-<h3 id="--no-infer-storage-classes"><a class="header" href="#--no-infer-storage-classes"><code>--no-infer-storage-classes</code></a></h3>
-<p>Disables the old SPIR-V "Storage Class" (i.e. address space) inference pass,
-to allow testing alternatives to it (such as SPIR-T <code>qptr</code> passes).</p>
-<p>Note that this will produce illegal SPIR-V by default, and you need e.g.
-<code>--spirt-passes=qptr</code> in order to regain legal "Storage Class" assignments<br />
-(see <a href="https://github.com/EmbarkStudios/spirt/pull/24">SPIR-T <code>qptr</code> PR</a> for more information on <code>qptr</code> in general)</p>
-<h3 id="--no-structurize"><a class="header" href="#--no-structurize"><code>--no-structurize</code></a></h3>
-<p>Disables CFG structurization. Probably results in invalid modules.</p>
-<h3 id="--spirt-until-060"><a class="header" href="#--spirt-until-060"><code>--spirt</code> <sub><em>(until 0.6.0)</em></sub></a></h3>
-<p><del>Note: as of <code>rust-gpu 0.6.0</code>, <code>SPIR-🇹</code> is enabled by default. Use <code>--no-spirt</code> to disable.</del>
-Note: as of <code>rust-gpu 0.8.0</code>, <code>SPIR-🇹</code> is always being used and cannot be disabled
-(to reduce the cost of maintenance, testing and further feature development).</p>
-<p>Enables using the experimental <a href="https://github.com/rust-gpu/spirt"><code>SPIR-🇹</code> shader IR framework</a> in the linker - more specifically, this:</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="debugging"><a class="header" href="#debugging">Debugging</a></h1>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="tracing"><a class="header" href="#tracing">Tracing</a></h1>
+<p><code>rust-gpu</code> has a lot of <a href="https://docs.rs/tracing/0.1/tracing/macro.debug.html">debug!</a>
+(or trace!) calls, which print out logging information at many points. These are very
+useful to at least narrow down the location of a bug if not to find it entirely, or just
+to orient yourself as to why the compiler backend is doing a particular thing.</p>
+<p>To see the logs, you need to set the <code>RUSTGPU_LOG</code> environment variable to your log filter (note the "GPU" in the name). The full syntax of the log filters can be found in the <a href="https://docs.rs/tracing-subscriber/0.2.24/tracing_subscriber/filter/struct.EnvFilter.html#directives">rustdoc of tracing-subscriber</a>.</p>
+<p>Use <code>RUSTGPU_LOG_FORMAT</code> to control log output format (<code>"tree"</code>, <code>"flat"</code>, or <code>"json"</code>) and <code>RUSTGPU_LOG_COLOR</code> to manage color output (<code>"always"</code>, <code>"never"</code>, or <code>"auto"</code>).</p>
+<p>To trace non-<code>rust-gpu</code> parts of the compiler, set the standard <a href="https://rustc-dev-guide.rust-lang.org/tracing.html"><code>RUSTC_LOG</code></a> environment variable.</p>
+<h2 id="replacements-for-old-codegen-arguments"><a class="header" href="#replacements-for-old-codegen-arguments">Replacements for old codegen arguments</a></h2>
+<p>Before <code>rust-gpu</code> supported tracing, there were special <a href="./codegen-args.html">codegen
+arguments</a> to aid observability. As of
+<a href="https://github.com/Rust-GPU/rust-gpu/pull/196">PR#196</a> the they
+have been removed and replaced with the following:</p>
 <ul>
-<li>adds a <code>SPIR-V -&gt; SPIR-🇹 -&gt; SPIR-V</code> roundtrip<br />
-(future <code>SPIR-🇹</code> passes would go in the middle of this, and eventually codegen might not produce <code>SPIR-V</code> at all)</li>
-<li>replaces the existing structurizer with <code>SPIR-🇹</code> structurization (which is more robust and can e.g. handle <code>OpPhi</code>s)</li>
-<li>runs some existing <code>SPIR-V</code> legalization/optimization passes (<code>mem2reg</code>) <em>before</em> inlining, instead of <em>only after</em> (as the <code>OpPhi</code>s they would produce are no longer an issue for structurization)</li>
+<li><code>--specializer-debug</code> → <code>RUSTGPU_LOG=rustc_codegen_spirv::specializer=debug</code></li>
 </ul>
-<p>For more information, also see <a href="https://github.com/rust-gpu/spirt">the <code>SPIR-🇹</code> repository</a>.</p>
-<h3 id="--no-spirt-060-and-070"><a class="header" href="#--no-spirt-060-and-070"><code>--no-spirt</code> <sub><em>(0.6.0 and 0.7.0)</em></sup></a></h3>
-<p>Note: as of <code>rust-gpu 0.8.0</code>, <code>SPIR-🇹</code> is always being used and cannot be disabled
-(to reduce the cost of maintenance, testing and further feature development).</p>
-<p>Note: if you were using <code>--no-spirt</code> to work around <a href="https://github.com/gfx-rs/naga/issues/1977"><code>naga</code> issue #1977</a><br />
-(valid loops causing <code>The 'break' is used outside of a 'loop' or 'switch' context</code>),<br />
-you may be able to <code>cargo update -p naga</code> to update to a fixed <code>naga</code> version<br />
-(<code>0.11.1</code> for <code>wgpu 0.15</code>, <code>0.12.1</code> for <code>wgpu 0.16</code>, and any later versions).</p>
-<p>Disables the <a href="https://github.com/rust-gpu/spirt"><code>SPIR-🇹</code> shader IR framework</a> in the linker.</p>
-<h3 id="--spirt-passes-passes"><a class="header" href="#--spirt-passes-passes"><code>--spirt-passes PASSES</code></a></h3>
-<p>Enable additional <code>SPIR-🇹</code> passes, as listed in <code>PASSES</code> (comma-separated).<br />
-Their implementation can be found in <a href="../../crates/rustc_codegen_spirv/src/linker/spirt_passes"><code>rustc_codegen_spirv::linker::spirt_passes</code></a>.</p>
-<p><em>Note: passes that are not already enabled by default are considered experimental and likely not ready for production use, this flag exists primarily for testing.</em></p>
-<h3 id="--dump-spirt-passes-dir"><a class="header" href="#--dump-spirt-passes-dir"><code>--dump-spirt-passes DIR</code></a></h3>
-<p>Dump the <code>SPIR-🇹</code> module across passes (i.e. all of the versions before/after each pass), as a combined report, to a pair of files (<code>.spirt</code> and <code>.spirt.html</code>) in <code>DIR</code>.<br />
-<sub>(the <code>.spirt.html</code> version of the report is the recommended form for viewing, as it uses tabling for versions, syntax-highlighting-like styling, and use-&gt;def linking)</sub></p>
-<h3 id="--spirt-strip-custom-debuginfo-from-dumps"><a class="header" href="#--spirt-strip-custom-debuginfo-from-dumps"><code>--spirt-strip-custom-debuginfo-from-dumps</code></a></h3>
-<p>When dumping (pretty-printed) <code>SPIR-🇹</code> (e.g. with <code>--dump-spirt-passes</code>), strip
-all the custom (Rust-GPU-specific) debuginfo instructions, by converting them
-to the standard SPIR-V debuginfo (which <code>SPIR-🇹</code> understands more directly).</p>
-<p>The default (keeping the custom instructions) is more verbose, but also lossless,
-if you want to see all instructions exactly as e.g. <code>--spirt-passes</code> see them.</p>
-<h3 id="--spirt-keep-debug-sources-in-dumps"><a class="header" href="#--spirt-keep-debug-sources-in-dumps"><code>--spirt-keep-debug-sources-in-dumps</code></a></h3>
-<p>When dumping (pretty-printed) <code>SPIR-🇹</code> (e.g. with <code>--dump-spirt-passes</code>), preserve
-all the "file contents debuginfo" (i.e. from SPIR-V <code>OpSource</code> instructions),
-which will end up being included, in full, at the start of the dump.</p>
-<p>The default (of hiding the file contents) is less verbose, but (arguably) lossier.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="minimizing-bugs-in-spir-v"><a class="header" href="#minimizing-bugs-in-spir-v">Minimizing bugs in SPIR-V</a></h1>
 <p>When debugging problems with SPIR-V generated by rust-gpu, you occasionally need
 to reduce the SPIR-V in order to make it easily shareable with others. We've
@@ -433,6 +324,132 @@ OpFunctionEnd
 </ul>
 </li>
 </ol>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="codegen-args-flagsoptions-supported-by-the-rust-gpu-codegen-backend"><a class="header" href="#codegen-args-flagsoptions-supported-by-the-rust-gpu-codegen-backend">"Codegen args" (flags/options) supported by the Rust-GPU codegen backend</a></h1>
+<p>Please keep in mind that many of these flags/options are for internal development, and may break output
+unexpectedly and generally muck things up. Please only use these if you know what you're doing.</p>
+<p>Help is also appreciated keeping this document up to date, "codegen args" flags/options may be
+added/removed on an ad-hoc basis without much thought, as they're internal development tools, not a
+public API - this documentation is only here because these flags/options may be helpful diagnosing
+problems for others.</p>
+<p>It's recommended that "codegen args" options that take paths to files or directories are set to full
+paths, as the working directory of the compiler might be something wonky and unexpected, and it's
+easier to set the full path.</p>
+<hr />
+<h2 id="how-to-set-codegen-args-flagsoptions"><a class="header" href="#how-to-set-codegen-args-flagsoptions">How to set "codegen args" flags/options</a></h2>
+<p>The most convenient method is relying on <code>spirv-builder</code> reading the <code>RUSTGPU_CODEGEN_ARGS</code> environment variable, e.g.:</p>
+<pre><code class="language-console">$ RUSTGPU_CODEGEN_ARGS="--no-spirv-val --dump-post-link=$PWD/postlink" cargo run -p example-runner-wgpu
+...
+    Finished release [optimized] target(s) in 15.15s
+
+$ file postlink/*
+postlink/module: Khronos SPIR-V binary, little-endian, version 0x010300, generator 0x1b0000
+</code></pre>
+<p>Notably, <code>RUSTGPU_CODEGEN_ARGS="--help"</code> can be used to see a "usage" message (which lists all the flags/options, including ones not listed in this document), via e.g. running a Cargo build that relies on <code>spirv-builder</code>.</p>
+<p>However, it's only a convenient alias for for <code>RUSTGPU_RUSTFLAGS=-Cllvm-args="..."</code> (without having to expose the fact that LLVM's name is still attached to <code>rustc</code>'s interface for this functionality), and if in direct control of <code>rustc</code>, you can still pass such "codegen args" flags/options wrapped in <code>-C llvm-args="..."</code>.</p>
+<hr />
+<h2 id="historical-note-about-past-environment-variables"><a class="header" href="#historical-note-about-past-environment-variables">Historical note about past "environment variables"</a></h2>
+<p>Many of these flags/options were at one point, individual environment variable (e.g. the <code>--dump-pre-link</code> option used to be the environment variable <code>DUMP_PRE_LINK</code>).</p>
+<p>However, that approach is prone to various failure modes, because the environment variables would not get registered as a "dependency" (without extra work that never happened), and the idea of "codegen args" fits better with existing practices (e.g. <code>rustc -C llvm-args="..."</code> for the LLVM codegen backend of <code>rustc</code>).</p>
+<p>For more context see also <a href="https://github.com/EmbarkStudios/rust-gpu/pull/959">PR #959</a>, which made the transition to this system.</p>
+<h2 id="where-are-all-the-rest-of-the-flagsoptions-documented"><a class="header" href="#where-are-all-the-rest-of-the-flagsoptions-documented">Where are all the rest of the flags/options documented?</a></h2>
+<p>If you do run a build with <code>RUSTGPU_CODEGEN_ARGS="--help"</code> (or <code>-C llvm-args="--help"</code>), you will notice more flags/options than are listed in this documented.</p>
+<p>This is a historical artifact: as mentioned above, these used to be environment variables, and this document only described those, without talking about the older "codegen args" at all.</p>
+<p>While most of those flags are usually only exposed through higher-level <code>spirv-builder</code> APIs, it would be nice to have all of them documented in one place (eventually?).</p>
+<hr />
+<h2 id="debugging-codegen-args-flagsoptions"><a class="header" href="#debugging-codegen-args-flagsoptions">Debugging "codegen args" flags/options</a></h2>
+<p>As mentioned above, these form the bulk of "codegen args", but keep in mind the list is not exhaustive and you will want to check the full list with e.g. <code>RUSTGPU_CODEGEN_ARGS="--help"</code>.</p>
+<h3 id="--dump-mir-dir"><a class="header" href="#--dump-mir-dir"><code>--dump-mir DIR</code></a></h3>
+<p>Dumps the MIR of every function rust-gpu encounters, to files in <code>DIR</code>. Yes, rustc does have options to do
+this by default, but I always forget the syntax, and plumbing through the option to <code>spirv-builder</code>
+is annoying, so this is handy to just hack an output.</p>
+<p><em><strong>FIXME(@eddyb)</strong> this may be irrelevant now given <code>RUSTGPU_RUSTFLAGS</code></em></p>
+<h3 id="--dump-module-on-panic-file"><a class="header" href="#--dump-module-on-panic-file"><code>--dump-module-on-panic FILE</code></a></h3>
+<p>If codegen panics, then write the (partially) emitted module to <code>FILE</code>. Note that this only exists
+for codegen, if the linker panics, this option does nothing, sadly.</p>
+<h3 id="--dump-pre-link-dir"><a class="header" href="#--dump-pre-link-dir"><code>--dump-pre-link DIR</code></a></h3>
+<p>Dumps all input modules to the linker, to files in <code>DIR</code>, before the linker touches them at all.</p>
+<h3 id="--dump-post-merge-dir"><a class="header" href="#--dump-post-merge-dir"><code>--dump-post-merge DIR</code></a></h3>
+<p>Dumps the merged module, to a file in <code>DIR</code>, immediately after merging, but before the linker has done anything else
+(including, well, linking the methods - <code>LinkageAttributes</code> will still exist, etc.). This is very
+similar to <code>--dump-pre-link</code>, except it outputs only a single file, which might make grepping through
+for stuff easier.</p>
+<h3 id="--dump-pre-inline-dir"><a class="header" href="#--dump-pre-inline-dir"><code>--dump-pre-inline DIR</code></a></h3>
+<p>Dumps the module, to a file in <code>DIR</code>, immediately before the inliner pass runs.</p>
+<h3 id="--dump-post-inline-dir"><a class="header" href="#--dump-post-inline-dir"><code>--dump-post-inline DIR</code></a></h3>
+<p>Dumps the module, to a file in <code>DIR</code>, immediately after the inliner pass runs.</p>
+<h3 id="--dump-post-split-dir"><a class="header" href="#--dump-post-split-dir"><code>--dump-post-split DIR</code></a></h3>
+<p>Dumps the modules, to files in <code>DIR</code>, immediately after multimodule splitting.</p>
+<h3 id="--dump-post-link-dir"><a class="header" href="#--dump-post-link-dir"><code>--dump-post-link DIR</code></a></h3>
+<p>Takes: path to directory</p>
+<p>Dumps all output modules from the linker, to files in <code>DIR</code>. This may be multiple files due to the multimodule/module
+splitting option, hence it takes a directory instead of a file path. This is the final output
+binary before <code>spirv-opt</code> is executed, so it may be useful to output this to check if an issue is in
+Rust-GPU, or in <code>spirv-opt</code>.</p>
+<h3 id="--specializer-dump-instances-file"><a class="header" href="#--specializer-dump-instances-file"><code>--specializer-dump-instances FILE</code></a></h3>
+<p>Dumps to <code>FILE</code> all instances inferred by the specializer.</p>
+<h3 id="--no-spirv-val"><a class="header" href="#--no-spirv-val"><code>--no-spirv-val</code></a></h3>
+<p>Disables running <code>spirv-val</code> on the final output. Spooky scary option, can cause invalid modules!</p>
+<h3 id="--no-spirv-opt"><a class="header" href="#--no-spirv-opt"><code>--no-spirv-opt</code></a></h3>
+<p>Forcibly disables running <code>spirv-opt</code> on the final output, even if optimizations are enabled.</p>
+<h3 id="--no-compact-ids"><a class="header" href="#--no-compact-ids"><code>--no-compact-ids</code></a></h3>
+<p>Disables compaction of SPIR-V IDs at the end of linking. Causes absolutely ginormous IDs to be
+emitted. Useful if you're println debugging IDs in the linker (although spirv-opt will compact them
+anyway, be careful).</p>
+<h3 id="--no-early-report-zombies"><a class="header" href="#--no-early-report-zombies"><code>--no-early-report-zombies</code></a></h3>
+<p>Delays reporting zombies (aka "deferred errors") even further, to allow more legalization.
+Currently this also replaces the zombie reporting with a SPIR-T-based version
+(which may become the default in the future).</p>
+<h3 id="--no-infer-storage-classes"><a class="header" href="#--no-infer-storage-classes"><code>--no-infer-storage-classes</code></a></h3>
+<p>Disables the old SPIR-V "Storage Class" (i.e. address space) inference pass,
+to allow testing alternatives to it (such as SPIR-T <code>qptr</code> passes).</p>
+<p>Note that this will produce illegal SPIR-V by default, and you need e.g.
+<code>--spirt-passes=qptr</code> in order to regain legal "Storage Class" assignments<br />
+(see <a href="https://github.com/EmbarkStudios/spirt/pull/24">SPIR-T <code>qptr</code> PR</a> for more information on <code>qptr</code> in general)</p>
+<h3 id="--no-structurize"><a class="header" href="#--no-structurize"><code>--no-structurize</code></a></h3>
+<p>Disables CFG structurization. Probably results in invalid modules.</p>
+<h3 id="--spirt-until-060"><a class="header" href="#--spirt-until-060"><code>--spirt</code> <sub><em>(until 0.6.0)</em></sub></a></h3>
+<p><del>Note: as of <code>rust-gpu 0.6.0</code>, <code>SPIR-🇹</code> is enabled by default. Use <code>--no-spirt</code> to disable.</del>
+Note: as of <code>rust-gpu 0.8.0</code>, <code>SPIR-🇹</code> is always being used and cannot be disabled
+(to reduce the cost of maintenance, testing and further feature development).</p>
+<p>Enables using the experimental <a href="https://github.com/rust-gpu/spirt"><code>SPIR-🇹</code> shader IR framework</a> in the linker - more specifically, this:</p>
+<ul>
+<li>adds a <code>SPIR-V -&gt; SPIR-🇹 -&gt; SPIR-V</code> roundtrip<br />
+(future <code>SPIR-🇹</code> passes would go in the middle of this, and eventually codegen might not produce <code>SPIR-V</code> at all)</li>
+<li>replaces the existing structurizer with <code>SPIR-🇹</code> structurization (which is more robust and can e.g. handle <code>OpPhi</code>s)</li>
+<li>runs some existing <code>SPIR-V</code> legalization/optimization passes (<code>mem2reg</code>) <em>before</em> inlining, instead of <em>only after</em> (as the <code>OpPhi</code>s they would produce are no longer an issue for structurization)</li>
+</ul>
+<p>For more information, also see <a href="https://github.com/rust-gpu/spirt">the <code>SPIR-🇹</code> repository</a>.</p>
+<h3 id="--no-spirt-060-and-070"><a class="header" href="#--no-spirt-060-and-070"><code>--no-spirt</code> <sub><em>(0.6.0 and 0.7.0)</em></sup></a></h3>
+<p>Note: as of <code>rust-gpu 0.8.0</code>, <code>SPIR-🇹</code> is always being used and cannot be disabled
+(to reduce the cost of maintenance, testing and further feature development).</p>
+<p>Note: if you were using <code>--no-spirt</code> to work around <a href="https://github.com/gfx-rs/naga/issues/1977"><code>naga</code> issue #1977</a><br />
+(valid loops causing <code>The 'break' is used outside of a 'loop' or 'switch' context</code>),<br />
+you may be able to <code>cargo update -p naga</code> to update to a fixed <code>naga</code> version<br />
+(<code>0.11.1</code> for <code>wgpu 0.15</code>, <code>0.12.1</code> for <code>wgpu 0.16</code>, and any later versions).</p>
+<p>Disables the <a href="https://github.com/rust-gpu/spirt"><code>SPIR-🇹</code> shader IR framework</a> in the linker.</p>
+<h3 id="--spirt-passes-passes"><a class="header" href="#--spirt-passes-passes"><code>--spirt-passes PASSES</code></a></h3>
+<p>Enable additional <code>SPIR-🇹</code> passes, as listed in <code>PASSES</code> (comma-separated).<br />
+Their implementation can be found in <a href="../../crates/rustc_codegen_spirv/src/linker/spirt_passes"><code>rustc_codegen_spirv::linker::spirt_passes</code></a>.</p>
+<p><em>Note: passes that are not already enabled by default are considered experimental and likely not ready for production use, this flag exists primarily for testing.</em></p>
+<h3 id="--dump-spirt-passes-dir"><a class="header" href="#--dump-spirt-passes-dir"><code>--dump-spirt-passes DIR</code></a></h3>
+<p>Dump the <code>SPIR-🇹</code> module across passes (i.e. all of the versions before/after each pass), as a combined report, to a pair of files (<code>.spirt</code> and <code>.spirt.html</code>) in <code>DIR</code>.<br />
+<sub>(the <code>.spirt.html</code> version of the report is the recommended form for viewing, as it uses tabling for versions, syntax-highlighting-like styling, and use-&gt;def linking)</sub></p>
+<h3 id="--spirt-strip-custom-debuginfo-from-dumps"><a class="header" href="#--spirt-strip-custom-debuginfo-from-dumps"><code>--spirt-strip-custom-debuginfo-from-dumps</code></a></h3>
+<p>When dumping (pretty-printed) <code>SPIR-🇹</code> (e.g. with <code>--dump-spirt-passes</code>), strip
+all the custom (Rust-GPU-specific) debuginfo instructions, by converting them
+to the standard SPIR-V debuginfo (which <code>SPIR-🇹</code> understands more directly).</p>
+<p>The default (keeping the custom instructions) is more verbose, but also lossless,
+if you want to see all instructions exactly as e.g. <code>--spirt-passes</code> see them.</p>
+<h3 id="--spirt-keep-debug-sources-in-dumps"><a class="header" href="#--spirt-keep-debug-sources-in-dumps"><code>--spirt-keep-debug-sources-in-dumps</code></a></h3>
+<p>When dumping (pretty-printed) <code>SPIR-🇹</code> (e.g. with <code>--dump-spirt-passes</code>), preserve
+all the "file contents debuginfo" (i.e. from SPIR-V <code>OpSource</code> instructions),
+which will end up being included, in full, at the start of the dump.</p>
+<p>The default (of hiding the file contents) is less verbose, but (arguably) lossier.</p>
+<h3 id="--spirt-keep-unstructured-cfg-in-dumps"><a class="header" href="#--spirt-keep-unstructured-cfg-in-dumps"><code>--spirt-keep-unstructured-cfg-in-dumps</code></a></h3>
+<p>When dumping (pretty-printed) <code>SPIR-🇹</code> (e.g. with <code>--dump-spirt-passes</code>), include
+the initial unstructured state, as well (i.e. just after lowering from SPIR-V).</p>
+<p>The default (of only dumping structured SPIR-T) can have far less noisy dataflow,
+but unstructured SPIR-T may be needed for e.g. debugging the structurizer itself.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="publishing-rust-gpu-on-cratesio"><a class="header" href="#publishing-rust-gpu-on-cratesio">Publishing rust-gpu on crates.io</a></h1>
 <p>This is a task list for the maintainers of rust-gpu to remember to do when publishing a new version
 of rust-gpu (probably not useful for contributors without access to our crates.io account 😋)</p>
@@ -494,6 +511,7 @@ again 🙂.</li>
 <li><code>spirv-unknown-spv1.3</code></li>
 <li><code>spirv-unknown-spv1.4</code></li>
 <li><code>spirv-unknown-spv1.5</code></li>
+<li><code>spirv-unknown-spv1.6</code></li>
 </ul>
 <h3 id="vulkan-targets"><a class="header" href="#vulkan-targets">Vulkan Targets</a></h3>
 <ul>
@@ -501,6 +519,8 @@ again 🙂.</li>
 <li><code>spirv-unknown-vulkan1.1</code></li>
 <li><code>spirv-unknown-vulkan1.1spv1.4</code></li>
 <li><code>spirv-unknown-vulkan1.2</code></li>
+<li><code>spirv-unknown-vulkan1.3</code></li>
+<li><code>spirv-unknown-vulkan1.4</code></li>
 </ul>
 <h3 id="webgpu-targets"><a class="header" href="#webgpu-targets">WebGPU Targets</a></h3>
 <ul>
@@ -613,13 +633,13 @@ opt-level = 3
 which may slow down full rebuilds a bit. Please read <a href="https://github.com/EmbarkStudios/rust-gpu/issues/448">this
 issue</a> for more
 information, there's a few important caveats to know about this.</p>
-<h3 id="using-cargoconfig"><a class="header" href="#using-cargoconfig">Using <code>.cargo/config</code></a></h3>
+<h3 id="using-cargoconfigtoml"><a class="header" href="#using-cargoconfigtoml">Using <code>.cargo/config.toml</code></a></h3>
 <blockquote>
 <p><strong>Note</strong> This method will require manually rebuilding <code>rust-gpu</code> each
 time there has been changes to the repository.</p>
 </blockquote>
 <p>If you just want to build a shader crate, and don't need to automatically
-compile the SPIR-V binary at build time, you can use <code>.cargo/config</code> to set the
+compile the SPIR-V binary at build time, you can use <code>.cargo/config.toml</code> to set the
 necessary flags. Before you can do that however you need to do a couple of steps
 first to build the compiler backend.</p>
 <ol>
@@ -629,15 +649,21 @@ first to build the compiler backend.</p>
 <p>Now you should have a <code>librustc_codegen_spirv</code> dynamic library available in
 <code>target/release</code>. You'll need to keep this somewhere stable that you can
 reference from your shader project.</p>
-<p>Now we need to add our <code>.cargo/config</code> file. This is a configuration file that
-tells cargo how to build for SPIR-V. You need provide the target you're
-compiling for (see <a href="./platform-support.html">platform support</a>) and provide a path
-to your built <code>rustc_codegen_spirv</code> dynamic library. We have to also provide
-some additional options.</p>
+<p>Copy the <code>rust-gpu/rust-toolchain.toml</code> file to your project. You must use the same
+version of Rust as <code>rust-gpu</code> so that dynamic codegen library can be loaded by <code>rustc</code>.</p>
+<p>Now we need to add our <code>.cargo/config.toml</code> file that can be used to teach <code>cargo</code>
+how to build SPIR-V. Here are a few things we need to mention there.</p>
+<ul>
+<li>Path to a spec of a target you're compiling for (see <a href="./platform-support.html">platform support</a>).
+These specs reside in a directory inside the <code>spirv-builder</code> crate and an example relative path
+could look like <code>../rust-gpu/crates/rustc_codegen_spirv-target-specs/target-specs/spirv-unknown-spv1.3.json</code>.</li>
+<li>Absolute path to the <code>rustc_codegen_spirv</code> dynamic library that we built above.</li>
+<li>Some additional options.</li>
+</ul>
 <pre><code class="language-toml">[build]
-target = "spirv-unknown-spv1.3"
+target = "&lt;path_to_target_spec&gt;"
 rustflags = [
-    "-Zcodegen-backend=&lt;path_to_librustc_codegen_spirv&gt;",
+    "-Zcodegen-backend=&lt;absolute_path_to_librustc_codegen_spirv&gt;",
     "-Zbinary-dep-depinfo",
     "-Csymbol-mangling-version=v0",
     "-Zcrate-attr=feature(register_tool)",
@@ -891,6 +917,7 @@ and is likely what you want if you want a regular old sampled texture.</p>
             window.setTimeout(window.print, 100);
         });
         </script>
+
 
     </div>
     </body>
